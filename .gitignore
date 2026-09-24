@@ -1,0 +1,14 @@
+# Rust
+/src-tauri/target/
+
+# Node (falls je ein Frontend-Werkzeug dazukommt)
+node_modules/
+
+# Betriebssystem-Muell
+.DS_Store
+Thumbs.db
+
+# Lokale Testdatenbank, falls beim Entwickeln mal eine hier landet
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm

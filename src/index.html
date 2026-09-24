@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>Atelierbuch Straub</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<!-- Startet immer eingeloggt-aus, auch wenn Papa und Mama denselben PC
+     teilen - jede und jeder meldet sich mit eigenem Namen an, das ist die
+     Grundlage fuer "wer hat wann was gebucht" und fuer den Notfallzugang. -->
+<div id="login-bildschirm" class="login-buehne">
+  <form id="login-formular" class="login-karte" autocomplete="off">
+    <div class="login-marke">
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <rect width="48" height="48" rx="10" fill="#1c9b3b"/>
+        <g stroke="#fff" stroke-width="3.4" stroke-linecap="round" fill="none">
+          <line x1="15" y1="36" x2="33" y2="10"/><line x1="33" y1="36" x2="15" y2="10"/>
+          <circle cx="14.5" cy="37.5" r="4.6" stroke-width="3"/>
+          <circle cx="33.5" cy="37.5" r="4.6" stroke-width="3"/>
+        </g>
+        <circle cx="24" cy="25.4" r="2.1" fill="#fff"/>
+      </svg>
+      <div>
+        <strong>Atelierbuch</strong>
+        <span>Nähservice Straub</span>
+      </div>
+    </div>
+    <label class="feld">
+      <span>Benutzername</span>
+      <input id="login-benutzername" type="text" autocomplete="username" required autofocus>
+    </label>
+    <label class="feld">
+      <span>Passwort</span>
+      <input id="login-passwort" type="password" autocomplete="current-password" required>
+    </label>
+    <p id="login-fehler" class="login-fehler" hidden></p>
+    <button type="submit" class="knopf knopf-voll login-knopf">Anmelden</button>
+    <p class="login-hinweis">
+      Beim allererstmaligen Start steht der Benutzername <b>papa</b> und ein
+      Start-Passwort im Protokoll des Programms - danach unter „Konto" sofort
+      ein eigenes Passwort setzen.
+    </p>
+  </form>
+</div>
+
+<!-- ============ PROGRAMM ============ -->
+<div id="programm" hidden>
+
+  <header class="kopf">
+    <div class="kopf-innen">
+      <div class="marke">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <rect width="48" height="48" rx="10" fill="#1c9b3b"/>
+          <g stroke="#fff" stroke-width="3.4" stroke-linecap="round" fill="none">
+            <line x1="15" y1="36" x2="33" y2="10"/><line x1="33" y1="36" x2="15" y2="10"/>
+            <circle cx="14.5" cy="37.5" r="4.6" stroke-width="3"/>
+            <circle cx="33.5" cy="37.5" r="4.6" stroke-width="3"/>
+          </g>
+          <circle cx="24" cy="25.4" r="2.1" fill="#fff"/>
+        </svg>
+        <span class="marke-text">
+          <strong>Atelierbuch</strong>
+          <span>Nähservice Straub · Pfäffikon SZ</span>
+        </span>
+      </div>
+      <div class="reiter" role="tablist">
+        <button role="tab" id="r-arbeit" aria-selected="true" aria-controls="t-arbeit">Arbeiten</button>
+        <button role="tab" id="r-monat" aria-selected="false" aria-controls="t-monat">Monat &amp; Jahr</button>
+      </div>
+      <div class="kopf-benutzer">
+        <span id="angemeldet-als"></span>
+        <button class="knopf" id="abmeldenKnopf">Abmelden</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="huelle">
+
+    <!-- ============ ARBEITEN ============ -->
+    <section id="t-arbeit" role="tabpanel" aria-labelledby="r-arbeit">
+      <div class="arbeit">
+
+        <div class="tafel">
+          <div class="tafel-kopf">
+            <h2>Kunden</h2>
+            <p>Tippen und sofort finden — Name, Ort oder Telefon</p>
+          </div>
+          <div class="suchfeld">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+            <input id="suche" type="search" placeholder="z. B. Meier, Wollerau oder 079…" autocomplete="off">
+          </div>
+          <div class="filterzeile">
+            <label class="schalter"><input type="checkbox" id="archivAn"> Archiv mitzeigen</label>
+            <span class="treffer" id="treffer"></span>
+          </div>
+          <div class="liste" id="liste"></div>
+          <div class="abschnitt" style="border-top:1px solid var(--linie)">
+            <div class="knopfreihe">
+              <button class="knopf knopf-voll" id="neuerKundeKnopf">+ Neuer Kunde</button>
+              <button class="knopf" id="exportListeBtn">Liste exportieren</button>
+            </div>
+            <div id="exportVorschau" hidden></div>
+          </div>
+        </div>
+
+        <div class="tafel" id="kundenblatt"></div>
+
+      </div>
+    </section>
+
+    <!-- ============ MONAT ============ -->
+    <section id="t-monat" role="tabpanel" aria-labelledby="r-monat" hidden>
+      <div class="tafel">
+        <div class="tafel-kopf">
+          <h2 id="monatTitel">Dieses Jahr</h2>
+          <p>Bar, Twint, Karte und Rechnung im Überblick — ohne dass jemand nachrechnet</p>
+        </div>
+
+        <div class="abschnitt">
+          <div class="kacheln" id="kacheln"></div>
+        </div>
+
+        <div class="abschnitt">
+          <h3>Umsatz pro Monat</h3>
+          <div class="saeulen" id="saeulen"></div>
+        </div>
+
+        <div class="abschnitt">
+          <h3>Aufschlüsselung</h3>
+          <div class="tabellenrahmen">
+            <table class="monat">
+              <thead>
+                <tr><th>Monat</th><th>Total</th><th>Bar</th><th>Karte</th><th>Twint</th><th>Rechnung</th><th>Kunden</th><th>pro Kunde</th></tr>
+              </thead>
+              <tbody id="monatsZeilen"></tbody>
+              <tfoot id="monatsFuss"></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="abschnitt">
+          <h3>Sicherung</h3>
+          <p style="margin-top:0;font-size:14px;color:var(--tinte-2);max-width:60ch;">
+            Legt eine vollständige Kopie aller Daten an — als Datenbank-Datei zum
+            Zurückspielen und als Excel-lesbare Liste. Landet in
+            „Dokumente \ Atelierbuch Straub \ Sicherung".
+          </p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="sicherungKnopf">Jetzt sichern</button>
+            <span id="sicherungEcho" style="font-size:13px;color:var(--gruen);font-weight:600;"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============ NEUER KUNDE (Dialog) ============ -->
+<dialog id="neuerKundeDialog" class="dialog">
+  <form id="neuerKundeFormular" method="dialog" class="dialog-karte">
+    <h2>Neuer Kunde</h2>
+    <label class="feld"><span>Name*</span><input id="nk-name" required></label>
+    <label class="feld"><span>Vorname</span><input id="nk-vorname"></label>
+    <label class="feld"><span>Telefon</span><input id="nk-telefon"></label>
+    <label class="feld"><span>Ort</span><input id="nk-ort"></label>
+    <label class="feld"><span>Adresse</span><input id="nk-adresse"></label>
+    <label class="feld"><span>E-Mail</span><input id="nk-email" type="email"></label>
+    <div class="knopfreihe" style="justify-content:flex-end">
+      <button type="button" class="knopf" id="nk-abbrechen">Abbrechen</button>
+      <button type="submit" class="knopf knopf-voll">Anlegen</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

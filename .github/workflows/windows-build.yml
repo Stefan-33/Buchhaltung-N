@@ -1,0 +1,54 @@
+# Baut die Windows-Installationsdatei automatisch in der Cloud - genau der
+# Schritt, den wir auf einer Linux-Umgebung nicht selbst machen koennen.
+# GitHub stellt den Windows-Rechner dafuer kostenlos zur Verfuegung.
+#
+# Nach jedem Push landet unter "Actions" -> dieser Lauf -> "Artifacts" eine
+# fertige .msi- und .exe-Installationsdatei zum Herunterladen.
+
+name: Windows-Installationsdatei bauen
+
+on:
+  push:
+    branches:
+      - main
+      - "claude/**"
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - ".github/workflows/windows-build.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust installieren
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust-Abhaengigkeiten cachen
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Node installieren
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tauri-CLI installieren
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Windows-Installer bauen (.msi und .exe)
+        run: tauri build
+
+      - name: Installationsdateien hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Atelierbuch-Straub-Windows
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error

@@ -1,0 +1,227 @@
+/* Design 1:1 aus der Skizze uebernommen, die Papa schon gesehen und gut
+   gefunden hat - dieselben Farben, dieselbe Schrift wie auf der Website.
+   Systemschriften statt Google Fonts: das Programm laeuft offline, ein
+   Font-Nachladen aus dem Internet waere hier fehl am Platz. */
+
+:root{
+  --grund:#f4f1e9;
+  --blatt:#ffffff;
+  --blatt-2:#ebe7dc;
+  --tinte:#23281f;
+  --tinte-2:#61675a;
+  --tinte-3:#8c9183;
+  --linie:#dcd6c6;
+  --linie-stark:#c6bfaa;
+  --gruen:#1c9b3b;
+  --gruen-tief:#12692a;
+  --gruen-matt:#e4f2e6;
+  --faden:#c85f30;
+  --faden-matt:#f7e7de;
+  --schatten:0 1px 2px rgba(35,40,31,.06), 0 8px 24px -12px rgba(35,40,31,.18);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --grund:#15170f; --blatt:#1d2019; --blatt-2:#272b22; --tinte:#eceadf;
+    --tinte-2:#a5a996; --tinte-3:#7c8070; --linie:#343829; --linie-stark:#474c39;
+    --gruen:#45c563; --gruen-tief:#8ddba0; --gruen-matt:#1d3322;
+    --faden:#e6906a; --faden-matt:#3a2a20;
+    --schatten:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+
+*{box-sizing:border-box;}
+body{
+  margin:0;
+  background:var(--grund);
+  color:var(--tinte);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:15px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  overscroll-behavior:none;
+  user-select:none; /* fuehlt sich mehr wie eine Anwendung an, weniger wie eine Webseite */
+}
+input, textarea{user-select:text;}
+h1,h2,h3{font-family:Georgia,'Times New Roman',serif;font-weight:600;margin:0;line-height:1.15;}
+button{font:inherit;color:inherit;cursor:pointer;}
+input{font:inherit;color:inherit;}
+.zahl{font-variant-numeric:tabular-nums;}
+
+.huelle{max-width:1280px;margin:0 auto;padding-inline:16px;padding-block:16px 48px;}
+
+/* ---------- Kopf ---------- */
+.kopf{position:sticky;top:0;z-index:20;background:var(--grund);border-bottom:1px solid var(--linie);}
+.kopf-innen{max-width:1280px;margin:0 auto;padding-inline:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-block:12px;}
+.marke{display:flex;align-items:center;gap:10px;}
+.marke svg{width:34px;height:34px;border-radius:8px;flex:none;}
+.marke-text strong{font-family:Georgia,serif;font-size:17px;font-weight:600;display:block;}
+.marke-text span{font-size:12px;color:var(--tinte-2);letter-spacing:.02em;}
+
+.reiter{display:flex;gap:2px;background:var(--blatt-2);padding:3px;border-radius:9px;margin-left:24px;}
+.reiter button{border:0;background:none;padding:7px 15px;border-radius:7px;font-size:14px;font-weight:500;color:var(--tinte-2);}
+.reiter button[aria-selected="true"]{background:var(--blatt);color:var(--tinte);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08);}
+
+.kopf-benutzer{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--tinte-2);}
+
+/* ---------- Zweispalter ---------- */
+.arbeit{display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start;}
+@media (max-width:860px){.arbeit{grid-template-columns:1fr;}}
+
+.tafel{background:var(--blatt);border:1px solid var(--linie);border-radius:13px;box-shadow:var(--schatten);}
+.tafel-kopf{padding:15px 17px 13px;border-bottom:1px solid var(--linie);}
+.tafel-kopf h2{font-size:16px;}
+.tafel-kopf p{margin:3px 0 0;font-size:12.5px;color:var(--tinte-2);}
+
+/* ---------- Suche ---------- */
+.suchfeld{position:relative;padding:13px 14px;border-bottom:1px solid var(--linie);}
+.suchfeld input{width:100%;padding:10px 12px 10px 36px;border:1px solid var(--linie-stark);border-radius:9px;background:var(--grund);font-size:15px;}
+.suchfeld input:focus{outline:2px solid var(--gruen);outline-offset:1px;border-color:var(--gruen);}
+.suchfeld svg{position:absolute;left:25px;top:50%;transform:translateY(-50%);width:16px;height:16px;stroke:var(--tinte-3);fill:none;stroke-width:2;}
+
+.filterzeile{display:flex;align-items:center;gap:8px;padding:10px 15px;border-bottom:1px solid var(--linie);font-size:13px;color:var(--tinte-2);flex-wrap:wrap;}
+.schalter{display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+.schalter input{width:15px;height:15px;accent-color:var(--gruen);margin:0;cursor:pointer;}
+.treffer{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--tinte-3);}
+
+.liste{max-height:calc(100vh - 420px);min-height:200px;overflow-y:auto;overflow-x:hidden;}
+.zeile{display:flex;align-items:baseline;gap:9px;width:100%;padding:10px 15px;border:0;border-bottom:1px solid var(--linie);background:none;text-align:left;}
+.zeile:hover{background:var(--blatt-2);}
+.zeile[aria-current="true"]{background:var(--gruen-matt);box-shadow:inset 3px 0 0 var(--gruen);}
+.zeile-name{font-weight:600;font-size:14.5px;}
+.zeile-ort{font-size:12.5px;color:var(--tinte-2);}
+.zeile-betrag{margin-left:auto;font-size:13px;color:var(--tinte-2);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.leer{padding:26px 16px;text-align:center;color:var(--tinte-2);font-size:14px;}
+
+.merkmal{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 6px;border-radius:5px;flex:none;}
+.m-archiv{background:var(--blatt-2);color:var(--tinte-3);}
+
+/* ---------- Kundenblatt ---------- */
+.blatt-kopf{display:flex;gap:16px;align-items:flex-start;padding:17px;border-bottom:1px solid var(--linie);flex-wrap:wrap;}
+.blatt-kopf h2{font-size:23px;}
+.kontakt{margin:5px 0 0;font-size:13.5px;color:var(--tinte-2);}
+.kontakt span{white-space:nowrap;}
+.kennzahlen{display:flex;gap:22px;margin-left:auto;}
+.kennzahl{text-align:right;}
+.kennzahl b{display:block;font-family:Georgia,serif;font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;}
+.kennzahl span{font-size:11.5px;color:var(--tinte-2);text-transform:uppercase;letter-spacing:.04em;}
+
+.kundennr{font-size:12.5px;color:var(--tinte-3);font-variant-numeric:tabular-nums;font-weight:500;}
+.kartenblock{display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap;}
+.kartenblock > span{font-size:11.5px;color:var(--tinte-2);text-transform:uppercase;letter-spacing:.04em;font-weight:600;}
+.kartewahl{display:flex;gap:5px;}
+.kartewahl button{border:1px solid var(--linie-stark);background:var(--blatt);color:var(--tinte-2);padding:4px 11px;border-radius:20px;font-size:12.5px;font-weight:600;}
+.kartewahl button[aria-pressed="true"]{background:var(--gruen);border-color:var(--gruen);color:#fff;}
+.kartewahl button[data-satz=""][aria-pressed="true"]{background:var(--faden);border-color:var(--faden);}
+
+.kartehinweis{display:flex;gap:8px;align-items:flex-start;margin-top:11px;padding:9px 12px;border-radius:9px;background:var(--gruen-matt);font-size:12.5px;color:var(--tinte);}
+.kartehinweis.neu{background:var(--faden-matt);}
+
+.abschnitt{padding:16px 17px;}
+.abschnitt + .abschnitt{border-top:1px solid var(--linie);}
+.abschnitt h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--tinte-2);margin-bottom:11px;}
+
+.verlauf{width:100%;border-collapse:collapse;font-size:14px;}
+.verlauf th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--tinte-3);font-weight:600;padding-bottom:7px;border-bottom:1px solid var(--linie);}
+.verlauf td{padding:9px 0;border-bottom:1px solid var(--linie);vertical-align:top;}
+.verlauf tr:last-child td{border-bottom:0;}
+.verlauf .re{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.zahlart{font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px;background:var(--blatt-2);color:var(--tinte-2);white-space:nowrap;}
+.za-offen{background:var(--faden-matt);color:var(--faden);}
+
+/* ---------- Auftragsformular ---------- */
+.posten{display:grid;grid-template-columns:52px 1fr 92px 92px 32px;gap:8px;align-items:center;margin-bottom:7px;}
+.posten-kopf{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--tinte-3);font-weight:600;}
+.posten input{width:100%;padding:8px 10px;border:1px solid var(--linie-stark);border-radius:8px;background:var(--grund);font-size:14px;}
+.posten input:focus{outline:2px solid var(--gruen);outline-offset:1px;border-color:var(--gruen);}
+.posten input[type="number"]{text-align:right;font-variant-numeric:tabular-nums;}
+.posten .summe{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;padding-right:2px;}
+.weg{border:0;background:none;color:var(--tinte-3);font-size:19px;line-height:1;padding:0 4px;border-radius:6px;}
+.weg:hover{color:var(--faden);background:var(--faden-matt);}
+@media (max-width:560px){
+  .posten{grid-template-columns:44px 1fr 74px;}
+  .posten-kopf{display:none;}
+}
+
+.knopfreihe{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:13px;}
+.knopf{border:1px solid var(--linie-stark);background:var(--blatt);padding:9px 15px;border-radius:9px;font-size:14px;font-weight:500;}
+.knopf:hover{border-color:var(--gruen);color:var(--gruen);}
+.knopf:disabled{opacity:.5;cursor:default;}
+.knopf-voll{background:var(--gruen);border-color:var(--gruen);color:#fff;font-weight:600;}
+.knopf-voll:hover{background:var(--gruen-tief);border-color:var(--gruen-tief);color:#fff;}
+
+.zahlwahl{display:flex;gap:7px;flex-wrap:wrap;margin-top:4px;}
+.zahlwahl button{border:1px solid var(--linie-stark);background:var(--blatt);padding:8px 16px;border-radius:9px;font-size:14px;font-weight:500;}
+.zahlwahl button[aria-pressed="true"]{background:var(--gruen);border-color:var(--gruen);color:#fff;font-weight:600;}
+
+.endsumme{display:flex;align-items:baseline;gap:12px;margin-top:15px;padding-top:13px;border-top:2px solid var(--linie-stark);}
+.endsumme span{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--tinte-2);font-weight:600;}
+.endsumme b{margin-left:auto;font-family:Georgia,serif;font-size:29px;font-weight:700;font-variant-numeric:tabular-nums;}
+
+.fehler{color:var(--faden);font-size:13px;font-weight:600;}
+
+/* ---------- Quittung ---------- */
+.quittung{margin-top:15px;background:var(--grund);border:1px dashed var(--linie-stark);border-radius:10px;padding:17px;font-size:13px;}
+.quittung-kopf{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;border-bottom:2px solid var(--gruen);padding-bottom:9px;margin-bottom:11px;}
+.quittung-kopf strong{font-family:Georgia,serif;font-size:15px;display:block;}
+.quittung-kopf p{margin:1px 0 0;font-size:11.5px;color:var(--tinte-2);line-height:1.45;}
+.quittung table{width:100%;border-collapse:collapse;font-size:13px;}
+.quittung td{padding:4px 0;}
+.quittung .re{text-align:right;font-variant-numeric:tabular-nums;}
+.quittung tfoot td{border-top:1px solid var(--linie-stark);padding-top:7px;font-weight:700;}
+.kleingedruckt{margin-top:11px;font-size:11px;color:var(--tinte-2);}
+
+/* ---------- Export / Monatsansicht ---------- */
+.tabellenrahmen{overflow-x:auto;}
+.auflistung{width:100%;border-collapse:collapse;font-size:13.5px;min-width:600px;}
+.auflistung th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--tinte-2);font-weight:600;padding:0 10px 8px;border-bottom:1px solid var(--linie-stark);}
+.auflistung td{padding:7px 10px;border-bottom:1px solid var(--linie);white-space:nowrap;}
+.auflistung td:last-child, .auflistung th:last-child{text-align:right;font-variant-numeric:tabular-nums;}
+.exporthinweis{font-size:12.5px;color:var(--tinte-2);background:var(--blatt-2);border-radius:8px;padding:9px 12px;margin-bottom:12px;}
+.monat{width:100%;border-collapse:collapse;font-size:14px;min-width:620px;}
+.monat th{text-align:right;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--tinte-2);font-weight:600;padding:0 11px 9px;border-bottom:1px solid var(--linie-stark);}
+.monat th:first-child{text-align:left;}
+.monat td{padding:9px 11px;border-bottom:1px solid var(--linie);text-align:right;font-variant-numeric:tabular-nums;}
+.monat td:first-child{text-align:left;font-weight:500;}
+.monat tfoot td{border-top:2px solid var(--linie-stark);border-bottom:0;font-weight:700;padding-top:11px;}
+.monat .still td{color:var(--tinte-3);}
+
+.saeulen{display:flex;align-items:flex-end;gap:9px;height:130px;margin-block:6px 4px;}
+.saeule{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%;}
+.saeule i{width:100%;background:var(--gruen);border-radius:4px 4px 0 0;display:block;min-height:2px;}
+.saeule.still i{background:var(--linie-stark);}
+.saeule small{font-size:11px;color:var(--tinte-2);}
+
+.kacheln{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+.kachel{background:var(--blatt-2);border-radius:10px;padding:13px 15px;}
+.kachel b{display:block;font-family:Georgia,serif;font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;}
+.kachel span{font-size:12px;color:var(--tinte-2);}
+
+/* ---------- Login ---------- */
+.login-buehne{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--grund);z-index:100;}
+.login-karte{width:min(360px, 90vw);background:var(--blatt);border:1px solid var(--linie);border-radius:16px;box-shadow:var(--schatten);padding:28px 26px;}
+.login-marke{display:flex;align-items:center;gap:12px;margin-bottom:22px;}
+.login-marke svg{width:42px;height:42px;border-radius:10px;flex:none;}
+.login-marke strong{font-family:Georgia,serif;font-size:19px;display:block;}
+.login-marke span{font-size:12.5px;color:var(--tinte-2);}
+.login-knopf{width:100%;justify-content:center;margin-top:6px;padding-block:11px;}
+.login-fehler{color:var(--faden);font-size:13px;font-weight:600;margin:4px 0 0;}
+.login-hinweis{font-size:11.5px;color:var(--tinte-3);margin:16px 0 0;line-height:1.5;}
+
+.feld{display:block;margin-top:14px;}
+.feld:first-child{margin-top:0;}
+.feld span{display:block;font-size:12.5px;font-weight:600;color:var(--tinte-2);margin-bottom:5px;}
+.feld input{width:100%;padding:10px 12px;border:1px solid var(--linie-stark);border-radius:9px;background:var(--grund);font-size:15px;}
+.feld input:focus{outline:2px solid var(--gruen);outline-offset:1px;border-color:var(--gruen);}
+
+/* ---------- Dialog (Neuer Kunde) ---------- */
+.dialog{border:0;border-radius:16px;padding:0;box-shadow:var(--schatten);}
+.dialog::backdrop{background:rgba(20,22,17,.45);}
+.dialog-karte{padding:24px 26px;width:min(420px, 88vw);}
+.dialog-karte h2{font-size:19px;margin-bottom:4px;}
+
+/* ---------- Drucken: nur die Quittung, sonst nichts ---------- */
+@media print{
+  body *{visibility:hidden;}
+  .quittung, .quittung *{visibility:visible;}
+  .quittung{position:absolute;top:0;left:0;width:100%;border:0;padding:0;}
+}
