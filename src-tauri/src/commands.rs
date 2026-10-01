@@ -21,6 +21,23 @@ pub fn anmelden(zustand: State<AppZustand>, benutzername: String, passwort: Stri
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub fn ist_ersteinrichtung(zustand: State<AppZustand>) -> Antwort<bool> {
+    let conn = verbindung_sperren(&zustand);
+    auth::ist_ersteinrichtung(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn ersteinrichtung_abschliessen(
+    zustand: State<AppZustand>,
+    benutzername: String,
+    anzeigename: String,
+    passwort: String,
+) -> Antwort<Benutzer> {
+    let conn = verbindung_sperren(&zustand);
+    auth::ersteinrichtung_abschliessen(&conn, &benutzername, &anzeigename, &passwort).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn passwort_aendern(zustand: State<AppZustand>, benutzer_id: i64, neues_passwort: String) -> Antwort<()> {
     let conn = verbindung_sperren(&zustand);
     auth::passwort_aendern(&conn, benutzer_id, &neues_passwort).map_err(|e| e.to_string())

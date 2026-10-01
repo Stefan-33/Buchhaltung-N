@@ -12,7 +12,7 @@
 <!-- Startet immer eingeloggt-aus, auch wenn Papa und Mama denselben PC
      teilen - jede und jeder meldet sich mit eigenem Namen an, das ist die
      Grundlage fuer "wer hat wann was gebucht" und fuer den Notfallzugang. -->
-<div id="login-bildschirm" class="login-buehne">
+<div id="login-bildschirm" class="login-buehne" hidden>
   <form id="login-formular" class="login-karte" autocomplete="off">
     <div class="login-marke">
       <svg viewBox="0 0 48 48" aria-hidden="true">
@@ -31,7 +31,7 @@
     </div>
     <label class="feld">
       <span>Benutzername</span>
-      <input id="login-benutzername" type="text" autocomplete="username" required autofocus>
+      <input id="login-benutzername" type="text" autocomplete="username" required>
     </label>
     <label class="feld">
       <span>Passwort</span>
@@ -39,11 +39,53 @@
     </label>
     <p id="login-fehler" class="login-fehler" hidden></p>
     <button type="submit" class="knopf knopf-voll login-knopf">Anmelden</button>
-    <p class="login-hinweis">
-      Beim allererstmaligen Start steht der Benutzername <b>papa</b> und ein
-      Start-Passwort im Protokoll des Programms - danach unter „Konto" sofort
-      ein eigenes Passwort setzen.
+  </form>
+</div>
+
+<!-- ============ ERSTEINRICHTUNG ============ -->
+<!-- Erscheint nur, solange noch niemand im Programm eingerichtet ist -
+     anstelle eines Zufallspassworts, das sich sonst nirgends findet,
+     vergibt Papa sein Passwort hier direkt selbst. -->
+<div id="einrichtung-bildschirm" class="login-buehne" hidden>
+  <form id="einrichtung-formular" class="login-karte" autocomplete="off">
+    <div class="login-marke">
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <rect width="48" height="48" rx="10" fill="#1c9b3b"/>
+        <g stroke="#fff" stroke-width="3.4" stroke-linecap="round" fill="none">
+          <line x1="15" y1="36" x2="33" y2="10"/><line x1="33" y1="36" x2="15" y2="10"/>
+          <circle cx="14.5" cy="37.5" r="4.6" stroke-width="3"/>
+          <circle cx="33.5" cy="37.5" r="4.6" stroke-width="3"/>
+        </g>
+        <circle cx="24" cy="25.4" r="2.1" fill="#fff"/>
+      </svg>
+      <div>
+        <strong>Willkommen</strong>
+        <span>Erstes Konto einrichten</span>
+      </div>
+    </div>
+    <p class="login-hinweis" style="margin-top:0">
+      Dies ist die erste Anmeldung auf diesem PC. Vergib dein eigenes
+      Passwort — es wird nirgends gespeichert ausser verschlüsselt im
+      Programm selbst, auch nicht in einem Protokoll.
     </p>
+    <label class="feld">
+      <span>Dein Name (z. B. Rosmarie oder Beat)</span>
+      <input id="ek-anzeigename" type="text" required>
+    </label>
+    <label class="feld">
+      <span>Benutzername</span>
+      <input id="ek-benutzername" type="text" autocomplete="username" value="papa" required>
+    </label>
+    <label class="feld">
+      <span>Passwort (mind. 6 Zeichen)</span>
+      <input id="ek-passwort" type="password" autocomplete="new-password" minlength="6" required>
+    </label>
+    <label class="feld">
+      <span>Passwort wiederholen</span>
+      <input id="ek-passwort2" type="password" autocomplete="new-password" minlength="6" required>
+    </label>
+    <p id="einrichtung-fehler" class="login-fehler" hidden></p>
+    <button type="submit" class="knopf knopf-voll login-knopf">Konto anlegen &amp; loslegen</button>
   </form>
 </div>
 

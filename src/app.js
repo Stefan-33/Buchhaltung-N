@@ -20,13 +20,25 @@
     return typeof e === "string" ? e : "Unerwarteter Fehler.";
   }
 
-  // ================= LOGIN =================
+  // ================= LOGIN / ERSTEINRICHTUNG =================
   var aktuellerBenutzer = null;
 
   var elLoginBuehne = document.getElementById("login-bildschirm");
+  var elEinrichtungBuehne = document.getElementById("einrichtung-bildschirm");
   var elProgramm = document.getElementById("programm");
   var elLoginFormular = document.getElementById("login-formular");
   var elLoginFehler = document.getElementById("login-fehler");
+  var elEinrichtungFormular = document.getElementById("einrichtung-formular");
+  var elEinrichtungFehler = document.getElementById("einrichtung-fehler");
+
+  function nachAnmeldung(benutzer) {
+    aktuellerBenutzer = benutzer;
+    elLoginBuehne.hidden = true;
+    elEinrichtungBuehne.hidden = true;
+    elProgramm.hidden = false;
+    document.getElementById("angemeldet-als").textContent = "Angemeldet: " + benutzer.anzeigename;
+    programmStarten();
+  }
 
   elLoginFormular.addEventListener("submit", function (ev) {
     ev.preventDefault();
@@ -35,18 +47,39 @@
     var passwort = document.getElementById("login-passwort").value;
 
     invoke("anmelden", { benutzername: benutzername, passwort: passwort })
-      .then(function (benutzer) {
-        aktuellerBenutzer = benutzer;
-        elLoginBuehne.hidden = true;
-        elProgramm.hidden = false;
-        document.getElementById("angemeldet-als").textContent = "Angemeldet: " + benutzer.anzeigename;
-        programmStarten();
-      })
+      .then(nachAnmeldung)
       .catch(function (e) {
         elLoginFehler.textContent = fehlerText(e);
         elLoginFehler.hidden = false;
         document.getElementById("login-passwort").value = "";
         document.getElementById("login-passwort").focus();
+      });
+  });
+
+  elEinrichtungFormular.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    elEinrichtungFehler.hidden = true;
+    var anzeigename = document.getElementById("ek-anzeigename").value.trim();
+    var benutzername = document.getElementById("ek-benutzername").value.trim();
+    var passwort = document.getElementById("ek-passwort").value;
+    var passwort2 = document.getElementById("ek-passwort2").value;
+
+    if (passwort !== passwort2) {
+      elEinrichtungFehler.textContent = "Die beiden Passwörter stimmen nicht überein.";
+      elEinrichtungFehler.hidden = false;
+      return;
+    }
+    if (passwort.length < 6) {
+      elEinrichtungFehler.textContent = "Mindestens 6 Zeichen.";
+      elEinrichtungFehler.hidden = false;
+      return;
+    }
+
+    invoke("ersteinrichtung_abschliessen", { benutzername: benutzername, anzeigename: anzeigename, passwort: passwort })
+      .then(nachAnmeldung)
+      .catch(function (e) {
+        elEinrichtungFehler.textContent = fehlerText(e);
+        elEinrichtungFehler.hidden = false;
       });
   });
 
@@ -57,6 +90,24 @@
     elLoginFormular.reset();
     document.getElementById("login-benutzername").focus();
   });
+
+  // Beim Start pruefen: noch niemand eingerichtet -> Ersteinrichtung
+  // zeigen, sonst ganz normal den Login-Bildschirm.
+  invoke("ist_ersteinrichtung")
+    .then(function (leer) {
+      if (leer) {
+        elEinrichtungBuehne.hidden = false;
+        document.getElementById("ek-anzeigename").focus();
+      } else {
+        elLoginBuehne.hidden = false;
+        document.getElementById("login-benutzername").focus();
+      }
+    })
+    .catch(function () {
+      // Falls die Pruefung selbst scheitert, lieber den normalen Login
+      // zeigen als die Seite leer zu lassen.
+      elLoginBuehne.hidden = false;
+    });
 
   // ================= KUNDENLISTE =================
   var elListe = document.getElementById("liste");

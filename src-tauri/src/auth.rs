@@ -40,25 +40,23 @@ fn passwort_pruefen(passwort: &str, hash: &str) -> bool {
         .is_ok()
 }
 
-/// Legt beim allerersten Start automatisch das Konto fuer Papa an, falls
-/// noch niemand existiert - er muss also nicht selbst einen SQL-Befehl
-/// eintippen. Das Startpasswort steht danach einmalig in der Konsole /
-/// einer Textdatei, damit er es sofort aendern kann.
-pub fn erstkonto_sicherstellen(conn: &Connection) -> Result<Option<(String, String)>, AuthFehler> {
+/// Noch niemand im Programm eingerichtet? Dann zeigt die Oberflaeche statt
+/// des Login-Formulars die Ersteinrichtung. Kein Zufallspasswort mehr, das
+/// irgendwo im Protokoll verschwinden koennte (genau das ist der ersten
+/// Fassung passiert) - Papa vergibt sein Passwort selbst, im selben Zug.
+pub fn ist_ersteinrichtung(conn: &Connection) -> Result<bool, AuthFehler> {
     let anzahl: i64 = conn.query_row("SELECT COUNT(*) FROM benutzer", [], |z| z.get(0))?;
-    if anzahl > 0 {
-        return Ok(None);
-    }
-    let start_passwort = zufalls_passwort();
-    konto_anlegen(conn, "papa", "Rosmarie / Beat Straub", &start_passwort, "inhaber")?;
-    Ok(Some(("papa".to_string(), start_passwort)))
+    Ok(anzahl == 0)
 }
 
-fn zufalls_passwort() -> String {
-    use rand::Rng;
-    const ZEICHEN: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let mut rng = rand::thread_rng();
-    (0..10).map(|_| ZEICHEN[rng.gen_range(0..ZEICHEN.len())] as char).collect()
+pub fn ersteinrichtung_abschliessen(
+    conn: &Connection,
+    benutzername: &str,
+    anzeigename: &str,
+    passwort: &str,
+) -> Result<Benutzer, AuthFehler> {
+    konto_anlegen(conn, benutzername, anzeigename, passwort, "inhaber")?;
+    anmelden(conn, benutzername, passwort)
 }
 
 pub fn konto_anlegen(

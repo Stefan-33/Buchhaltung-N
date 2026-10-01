@@ -26,15 +26,10 @@ pub fn run() {
 
             let conn = db::verbinden().expect("Datenbank konnte nicht geoeffnet werden");
 
-            // Beim allerersten Start: Papas Konto automatisch anlegen und
-            // das Start-Passwort ins Log schreiben, damit er es sofort
-            // sieht und beim ersten Login gleich aendern kann.
-            if let Ok(Some((benutzername, start_passwort))) = auth::erstkonto_sicherstellen(&conn) {
-                log::info!(
-                    "Erstes Konto angelegt - Benutzername '{benutzername}', Start-Passwort '{start_passwort}'. \
-                     Bitte beim ersten Login sofort ein eigenes Passwort setzen."
-                );
-            }
+            // Kein Konto wird mehr automatisch mit einem Zufallspasswort
+            // angelegt - die Oberflaeche fragt bei leerer Benutzertabelle
+            // selbst nach (ist_ersteinrichtung), Papa vergibt sein
+            // Passwort direkt beim ersten Start.
 
             // Archiv-Status beim Start einmal auffrischen, falls das
             // Programm laenger nicht offen war.
@@ -45,6 +40,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::anmelden,
+            commands::ist_ersteinrichtung,
+            commands::ersteinrichtung_abschliessen,
             commands::passwort_aendern,
             commands::zweites_konto_anlegen,
             commands::kunden_suchen,
