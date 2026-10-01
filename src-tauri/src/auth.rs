@@ -4,7 +4,7 @@
 
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, ErrorCode, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -19,6 +19,8 @@ pub struct Benutzer {
 pub enum AuthFehler {
     #[error("Benutzername oder Passwort ist falsch")]
     UngueltigeAnmeldung,
+    #[error("Dieser Benutzername ist schon vergeben. Bitte einen anderen wählen.")]
+    BenutzernameBelegt,
     #[error("Datenbankfehler: {0}")]
     Datenbank(#[from] rusqlite::Error),
     #[error("Passwort konnte nicht verarbeitet werden")]
@@ -78,11 +80,19 @@ pub fn konto_anlegen(
     rolle: &str,
 ) -> Result<(), AuthFehler> {
     let hash = passwort_hashen(passwort)?;
-    conn.execute(
+    let ergebnis = conn.execute(
         "INSERT INTO benutzer (benutzername, anzeigename, passwort_hash, rolle) VALUES (?1, ?2, ?3, ?4)",
         (benutzername, anzeigename, hash, rolle),
-    )?;
-    Ok(())
+    );
+    match ergebnis {
+        Ok(_) => Ok(()),
+        // "benutzername" ist UNIQUE in der Tabelle - statt der rohen
+        // SQLite-Fehlermeldung eine verstaendliche Meldung zeigen.
+        Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == ErrorCode::ConstraintViolation => {
+            Err(AuthFehler::BenutzernameBelegt)
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 pub fn anmelden(conn: &Connection, benutzername: &str, passwort: &str) -> Result<Benutzer, AuthFehler> {
@@ -148,5 +158,41 @@ mod tests {
 
         // Falsches Passwort muss sauber abgelehnt werden, nicht haengen.
         assert!(anmelden(&conn, "papa", "falsch").is_err());
+    }
+
+    fn test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE benutzer (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                benutzername TEXT NOT NULL UNIQUE,
+                anzeigename TEXT NOT NULL,
+                passwort_hash TEXT NOT NULL,
+                rolle TEXT NOT NULL DEFAULT 'inhaber',
+                erstellt_am TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+        conn
+    }
+
+    // Der Knopf "+ Mitarbeiterin anlegen" ruft genau das auf: ein zweites
+    // Konto mit Rolle "mitarbeiterin" statt "inhaber". Wird derselbe
+    // Benutzername zweimal vergeben (z.B. aus Versehen "mitarbeiterin1"
+    // nochmal angelegt), soll eine verstaendliche Meldung kommen statt der
+    // rohen SQLite-Fehlermeldung.
+    #[test]
+    fn mitarbeiterin_konto_mit_eigener_rolle_und_klare_meldung_bei_doppeltem_benutzernamen() {
+        let conn = test_db();
+
+        konto_anlegen(&conn, "mitarbeiterin1", "Mitarbeiterin 1", "geheim123", "mitarbeiterin").unwrap();
+        let eingeloggt = anmelden(&conn, "mitarbeiterin1", "geheim123").unwrap();
+        assert_eq!(eingeloggt.rolle, "mitarbeiterin");
+
+        let zweiter_versuch = konto_anlegen(&conn, "mitarbeiterin1", "Mitarbeiterin X", "andres123", "mitarbeiterin");
+        match zweiter_versuch {
+            Err(AuthFehler::BenutzernameBelegt) => {}
+            andere => panic!("erwartet BenutzernameBelegt, bekam: {:?}", andere),
+        }
     }
 }

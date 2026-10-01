@@ -152,6 +152,7 @@
           <div class="abschnitt" style="border-top:1px solid var(--linie)">
             <div class="knopfreihe">
               <button class="knopf knopf-voll" id="neuerKundeKnopf">+ Neuer Kunde</button>
+              <button class="knopf" id="kundenImportKnopf">Kunden importieren</button>
               <button class="knopf" id="exportListeBtn">Liste exportieren</button>
             </div>
             <div id="exportVorschau" hidden></div>
@@ -205,6 +206,18 @@
             <span id="sicherungEcho" style="font-size:13px;color:var(--gruen);font-weight:600;"></span>
           </div>
         </div>
+
+        <div class="abschnitt">
+          <h3>Mitarbeiterinnen-Zugang</h3>
+          <p style="margin-top:0;font-size:14px;color:var(--tinte-2);max-width:60ch;">
+            Legt ein eigenes Login an, mit dem sich eine Mitarbeiterin selbst anmelden kann —
+            sie sieht dann nur „Arbeiten" (Kunden suchen/anlegen/importieren, Aufträge buchen),
+            nicht diesen Reiter hier mit Umsatz und Sicherung.
+          </p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="mitarbeiterinAnlegenKnopf">+ Mitarbeiterin anlegen</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -224,6 +237,47 @@
     <div class="knopfreihe" style="justify-content:flex-end">
       <button type="button" class="knopf" id="nk-abbrechen">Abbrechen</button>
       <button type="submit" class="knopf knopf-voll">Anlegen</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ KUNDEN IMPORTIEREN (Dialog) ============ -->
+<dialog id="kundenImportDialog" class="dialog">
+  <div class="dialog-karte dialog-karte-breit">
+    <h2>Kunden importieren</h2>
+    <p class="login-hinweis" style="margin-top:0">
+      In Excel oder LibreOffice Calc die Kundentabelle markieren, kopieren (Strg+C)
+      und hier unten einfügen (Strg+V) — am liebsten mit Kopfzeile
+      (z. B. Name, Vorname, Telefon, Ort, Adresse, E-Mail). Die Reihenfolge der
+      Spalten ist egal, sie wird automatisch erkannt. Fehlt eine Kopfzeile,
+      wird genau diese Reihenfolge angenommen.
+    </p>
+    <textarea id="ki-text" class="textarea-eingabe" rows="6" placeholder="Hier einfügen…"></textarea>
+    <label class="schalter" style="margin-top:10px">
+      <input type="checkbox" id="ki-kopfzeile"> Erste Zeile ist Kopfzeile (wird nicht importiert)
+    </label>
+    <div id="ki-vorschau"></div>
+    <p id="ki-fehler" class="login-fehler" hidden></p>
+    <div class="knopfreihe" style="justify-content:flex-end">
+      <button type="button" class="knopf" id="ki-abbrechen">Schliessen</button>
+      <button type="button" class="knopf knopf-voll" id="ki-importieren" disabled>Importieren</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============ MITARBEITERIN ANLEGEN (Dialog) ============ -->
+<dialog id="mitarbeiterinDialog" class="dialog">
+  <form id="mitarbeiterinFormular" method="dialog" class="dialog-karte">
+    <h2>Mitarbeiterin anlegen</h2>
+    <label class="feld"><span>Anzeigename</span><input id="ma-anzeigename" value="Mitarbeiterin 1"></label>
+    <label class="feld"><span>Benutzername (zum Anmelden)</span><input id="ma-benutzername" value="mitarbeiterin1" autocomplete="off"></label>
+    <label class="feld"><span>Passwort (mind. 6 Zeichen)</span><input id="ma-passwort" type="password" autocomplete="new-password"></label>
+    <label class="feld"><span>Passwort wiederholen</span><input id="ma-passwort2" type="password" autocomplete="new-password"></label>
+    <p id="ma-fehler" class="login-fehler" hidden></p>
+    <p id="ma-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
+    <div class="knopfreihe" style="justify-content:flex-end">
+      <button type="button" class="knopf" id="ma-abbrechen">Schliessen</button>
+      <button type="button" class="knopf knopf-voll" id="ma-anlegen">Anlegen</button>
     </div>
   </form>
 </dialog>

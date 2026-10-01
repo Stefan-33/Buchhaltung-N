@@ -33,6 +33,13 @@ pub fn verbinden() -> rusqlite::Result<Connection> {
     Ok(conn)
 }
 
+// Fuer Tests in anderen Modulen (z.B. geschaeft.rs) - dieselbe Tabellen-
+// Definition wie im echten Betrieb, nur ohne Datei auf der Platte.
+#[cfg(test)]
+pub fn schema_fuer_tests_anlegen(conn: &Connection) {
+    schema_anlegen(conn).expect("Test-Schema konnte nicht angelegt werden");
+}
+
 fn schema_anlegen(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         r#"

@@ -57,6 +57,21 @@ pub fn zweites_konto_anlegen(
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub fn mitarbeiterin_anlegen(
+    zustand: State<AppZustand>,
+    benutzername: String,
+    anzeigename: String,
+    passwort: String,
+) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    // Eigene Rolle "mitarbeiterin": loest in der Oberflaeche die
+    // eingeschraenkte Ansicht aus (siehe rolleAnwenden() in app.js) -
+    // kein Zugriff auf Monat & Jahr, Auswertung oder Sicherung, nur Kunden
+    // suchen/anlegen/importieren und Auftraege buchen.
+    auth::konto_anlegen(&conn, &benutzername, &anzeigename, &passwort, "mitarbeiterin").map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn kunden_suchen(zustand: State<AppZustand>, suchtext: String, archiv_zeigen: bool) -> Antwort<Vec<Kunde>> {
     let conn = verbindung_sperren(&zustand);
     geschaeft::kunden_suchen(&conn, &suchtext, archiv_zeigen).map_err(|e| e.to_string())
@@ -66,6 +81,12 @@ pub fn kunden_suchen(zustand: State<AppZustand>, suchtext: String, archiv_zeigen
 pub fn kunde_anlegen(zustand: State<AppZustand>, eingabe: NeuerKunde) -> Antwort<Kunde> {
     let conn = verbindung_sperren(&zustand);
     geschaeft::kunde_anlegen(&conn, eingabe).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn kunden_importieren(zustand: State<AppZustand>, eingaben: Vec<NeuerKunde>) -> Antwort<usize> {
+    let mut conn = verbindung_sperren(&zustand);
+    geschaeft::kunden_importieren(&mut conn, eingaben).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]

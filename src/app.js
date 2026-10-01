@@ -65,12 +65,27 @@
     el.inert = !zeigen;
   }
 
+  // Eine Mitarbeiterin sieht nur "Arbeiten" (Kunden suchen/anlegen/
+  // importieren, Aufträge buchen) - Umsatz, Auswertung, Sicherung und das
+  // Anlegen weiterer Konten bleiben Papa/Mama (Rolle "inhaber")
+  // vorbehalten. Reine Oberflaechen-Einschraenkung, keine scharfe
+  // Zugriffssperre - passt zum ueberschaubaren familiaeren Rahmen hier.
+  function rolleAnwenden(rolle) {
+    var istMitarbeiterin = rolle === "mitarbeiterin";
+    document.getElementById("r-monat").hidden = istMitarbeiterin;
+    if (istMitarbeiterin) {
+      // Falls von einem frueheren Login noch der Monat-Reiter aktiv war.
+      document.getElementById("r-arbeit").click();
+    }
+  }
+
   function nachAnmeldung(benutzer) {
     aktuellerBenutzer = benutzer;
     bildschirmZeigen(elLoginBuehne, false);
     bildschirmZeigen(elEinrichtungBuehne, false);
     bildschirmZeigen(elProgramm, true);
     document.getElementById("angemeldet-als").textContent = "Angemeldet: " + benutzer.anzeigename;
+    rolleAnwenden(benutzer.rolle);
     programmStarten();
   }
 
@@ -308,6 +323,226 @@
         kundeLaden(kunde.id);
       })
       .catch(function (e) { alert(fehlerText(e)); });
+  });
+
+  // ================= KUNDEN IMPORTIEREN =================
+  // Nimmt entgegen, was aus Excel/LibreOffice Calc (oder sonst einer
+  // Tabellenkalkulation) kopiert und hier eingefuegt wird - normalerweise
+  // Tab-getrennt (so liefert ein Copy&Paste aus einer Tabelle), notfalls
+  // auch Semikolon- oder Komma-getrennt wie ein CSV-Export.
+  var elKiDialog = document.getElementById("kundenImportDialog");
+  var elKiText = document.getElementById("ki-text");
+  var elKiKopfzeile = document.getElementById("ki-kopfzeile");
+  var elKiVorschau = document.getElementById("ki-vorschau");
+  var elKiFehler = document.getElementById("ki-fehler");
+  var elKiImportierenKnopf = document.getElementById("ki-importieren");
+  var kiEintraegeAlle = []; // letztes Parse-Ergebnis, mit Namen und ohne
+
+  // Welche Spaltenueberschrift zu welchem Feld gehoert - deckt die
+  // gaengigsten deutschen Varianten ab. "indexOf" statt nur "===", damit
+  // auch "Telefon privat" oder "Telefonnummer" erkannt werden.
+  var KI_FELD_SYNONYME = {
+    name: ["name", "nachname", "familienname"],
+    vorname: ["vorname"],
+    telefon: ["telefon", "tel", "handy", "natel", "mobile", "mobilnummer", "telefonnummer"],
+    ort: ["ort", "wohnort", "stadt"],
+    adresse: ["adresse", "strasse", "straße", "wohnadresse"],
+    email: ["email", "mail"],
+  };
+  var KI_STANDARD_REIHENFOLGE = ["name", "vorname", "telefon", "ort", "adresse", "email"];
+  var kiKopfzeileErkannt = false;
+
+  function kiTextNormalisieren(s) {
+    return String(s || "").toLowerCase().replace(/ß/g, "ss").replace(/[^a-z0-9]/g, "").trim();
+  }
+
+  function kiZeilenAufteilen(text) {
+    return text.split(/\r\n|\r|\n/).filter(function (z) { return z.trim() !== ""; });
+  }
+
+  // Erkennt, ob Tab, Semikolon oder Komma getrennt wurde - anhand der
+  // ersten Zeile, da genau diese drei beim Einfuegen aus einer
+  // Tabellenkalkulation oder einem CSV-Export vorkommen.
+  function kiTrennzeichenErkennen(ersteZeile) {
+    var kandidaten = ["\t", ";", ","];
+    var beste = "\t", bestAnzahl = -1;
+    kandidaten.forEach(function (t) {
+      var anzahl = ersteZeile.split(t).length - 1;
+      if (anzahl > bestAnzahl) { bestAnzahl = anzahl; beste = t; }
+    });
+    return beste;
+  }
+
+  // Einfacher, anfuehrungszeichen-fester Spalten-Zerleger - faengt auch
+  // einen CSV-Export ab, bei dem ein Feld selbst das Trennzeichen enthaelt
+  // und deshalb in Anfuehrungszeichen steht.
+  function kiZeileSpalten(zeile, trenner) {
+    var ergebnis = [];
+    var feld = "";
+    var inAnfuehrung = false;
+    for (var i = 0; i < zeile.length; i++) {
+      var c = zeile[i];
+      if (inAnfuehrung) {
+        if (c === '"') {
+          if (zeile[i + 1] === '"') { feld += '"'; i++; }
+          else { inAnfuehrung = false; }
+        } else {
+          feld += c;
+        }
+      } else if (c === '"') {
+        inAnfuehrung = true;
+      } else if (c === trenner) {
+        ergebnis.push(feld); feld = "";
+      } else {
+        feld += c;
+      }
+    }
+    ergebnis.push(feld);
+    return ergebnis;
+  }
+
+  // Versucht, jede Spalte der ersten Zeile einem Feld zuzuordnen - in zwei
+  // Durchgaengen: zuerst nur exakte Treffer (verhindert z.B. dass "Vorname"
+  // - enthaelt "name" als Teilstring - faelschlich dem Feld "name"
+  // zugeordnet wird), danach Teilstring-Treffer fuer den Rest (faengt z.B.
+  // "Telefonnummer" oder "Telefon privat" ab).
+  function kiKopfzeileZuordnen(spalten) {
+    var normSpalten = spalten.map(kiTextNormalisieren);
+    var zuordnung = {};
+    var belegtFeld = {};
+    var belegtSpalte = {};
+
+    normSpalten.forEach(function (norm, i) {
+      if (!norm) return;
+      for (var feld in KI_FELD_SYNONYME) {
+        if (belegtFeld[feld]) continue;
+        if (KI_FELD_SYNONYME[feld].indexOf(norm) !== -1) {
+          zuordnung[i] = feld; belegtFeld[feld] = true; belegtSpalte[i] = true; break;
+        }
+      }
+    });
+    normSpalten.forEach(function (norm, i) {
+      if (!norm || belegtSpalte[i]) return;
+      for (var feld in KI_FELD_SYNONYME) {
+        if (belegtFeld[feld]) continue;
+        var passt = KI_FELD_SYNONYME[feld].some(function (syn) { return norm.indexOf(syn) !== -1; });
+        if (passt) { zuordnung[i] = feld; belegtFeld[feld] = true; belegtSpalte[i] = true; break; }
+      }
+    });
+
+    return zuordnung;
+  }
+
+  function kiEintraegeBauen(tabelle, zuordnung, kopfzeileUeberspringen) {
+    var zeilen = kopfzeileUeberspringen ? tabelle.slice(1) : tabelle;
+    return zeilen.map(function (spalten) {
+      var e = { name: "", vorname: "", telefon: "", ort: "", adresse: "", email: "" };
+      spalten.forEach(function (wert, i) {
+        var feld = zuordnung[i];
+        if (feld) e[feld] = String(wert || "").trim();
+      });
+      return e;
+    });
+  }
+
+  // Zerlegt den eingefuegten Text neu und ordnet die Spalten zu - wird bei
+  // jeder Texteingabe aufgerufen (debounced) und wenn die Kopfzeile-Checkbox
+  // von Hand umgestellt wird.
+  function kiNeuVerarbeiten(kopfzeileCheckboxVonHand) {
+    var zeilen = kiZeilenAufteilen(elKiText.value);
+    if (!zeilen.length) {
+      kiEintraegeAlle = [];
+      kiVorschauZeichnen();
+      return;
+    }
+
+    var trenner = kiTrennzeichenErkennen(zeilen[0]);
+    var tabelle = zeilen.map(function (z) { return kiZeileSpalten(z, trenner); });
+    var zuordnung = kiKopfzeileZuordnen(tabelle[0]);
+    // Mindestens 2 Treffer verlangen (bei nur einer Spalte reicht 1) -
+    // sonst koennte ein einzelner Zufallstreffer (z.B. "Seestrasse"
+    // enthaelt "strasse") eine ganz normale erste Datenzeile faelschlich
+    // als Kopfzeile einstufen und damit verschlucken.
+    var mindestTreffer = tabelle[0].length <= 1 ? 1 : 2;
+    kiKopfzeileErkannt = Object.keys(zuordnung).length >= mindestTreffer;
+
+    if (!kiKopfzeileErkannt) {
+      zuordnung = {};
+      KI_STANDARD_REIHENFOLGE.forEach(function (feld, i) { zuordnung[i] = feld; });
+    }
+    if (!kopfzeileCheckboxVonHand) elKiKopfzeile.checked = kiKopfzeileErkannt;
+
+    kiEintraegeAlle = kiEintraegeBauen(tabelle, zuordnung, elKiKopfzeile.checked);
+    kiVorschauZeichnen();
+  }
+
+  function kiVorschauZeichnen() {
+    if (!kiEintraegeAlle.length) {
+      elKiVorschau.innerHTML = "";
+      elKiImportierenKnopf.disabled = true;
+      return;
+    }
+
+    var mitName = kiEintraegeAlle.filter(function (e) { return e.name; });
+    var ohneName = kiEintraegeAlle.length - mitName.length;
+
+    var zeilenHtml = kiEintraegeAlle.slice(0, 50).map(function (e) {
+      var klasse = e.name ? "" : ' class="zeile-uebersprungen"';
+      return "<tr" + klasse + "><td>" + escapeHtml(e.name) + "</td><td>" + escapeHtml(e.vorname) + "</td>" +
+        "<td>" + escapeHtml(e.telefon) + "</td><td>" + escapeHtml(e.ort) + "</td>" +
+        "<td>" + escapeHtml(e.adresse) + "</td><td>" + escapeHtml(e.email) + "</td></tr>";
+    }).join("");
+
+    var hinweisKopf = kiKopfzeileErkannt
+      ? "Kopfzeile erkannt – Spalten automatisch zugeordnet."
+      : "Keine Kopfzeile erkannt – Reihenfolge Name, Vorname, Telefon, Ort, Adresse, E-Mail angenommen.";
+    var mehrHinweis = kiEintraegeAlle.length > 50 ? " (zeigt die ersten 50 von " + kiEintraegeAlle.length + ")" : "";
+    var namenHinweis = mitName.length + (mitName.length === 1 ? " Kunde wird importiert" : " Kunden werden importiert");
+    if (ohneName) {
+      namenHinweis += ", " + ohneName + " Zeile" + (ohneName === 1 ? "" : "n") +
+        " ohne Namen wird" + (ohneName === 1 ? "" : "en") + " übersprungen (durchgestrichen)";
+    }
+
+    elKiVorschau.innerHTML =
+      '<div class="import-zusammenfassung">' + hinweisKopf + "<br>" + namenHinweis + mehrHinweis + "</div>" +
+      '<div class="tabellenrahmen"><table class="auflistung"><thead><tr>' +
+      "<th>Name</th><th>Vorname</th><th>Telefon</th><th>Ort</th><th>Adresse</th><th>E-Mail</th>" +
+      "</tr></thead><tbody>" + zeilenHtml + "</tbody></table></div>";
+
+    elKiImportierenKnopf.disabled = mitName.length === 0;
+  }
+
+  document.getElementById("kundenImportKnopf").addEventListener("click", function () {
+    elKiText.value = "";
+    elKiKopfzeile.checked = false;
+    elKiVorschau.innerHTML = "";
+    elKiFehler.hidden = true;
+    elKiImportierenKnopf.disabled = true;
+    kiEintraegeAlle = [];
+    elKiDialog.showModal();
+    elKiText.focus();
+  });
+  document.getElementById("ki-abbrechen").addEventListener("click", function () { elKiDialog.close(); });
+  elKiText.addEventListener("input", debounce(function () { kiNeuVerarbeiten(false); }, 150));
+  elKiKopfzeile.addEventListener("change", function () { kiNeuVerarbeiten(true); });
+
+  document.getElementById("ki-importieren").addEventListener("click", function () {
+    var eintraege = kiEintraegeAlle.filter(function (e) { return e.name; });
+    if (!eintraege.length) return;
+    elKiFehler.hidden = true;
+    knopfSperren(elKiImportierenKnopf, true);
+    invoke("kunden_importieren", { eingaben: eintraege })
+      .then(function (anzahl) {
+        elKiDialog.close();
+        elSuche.value = "";
+        suchtextSuchen();
+        alert(anzahl + (anzahl === 1 ? " Kunde wurde importiert." : " Kunden wurden importiert."));
+      })
+      .catch(function (e) {
+        elKiFehler.textContent = fehlerText(e);
+        elKiFehler.hidden = false;
+      })
+      .finally(function () { knopfSperren(elKiImportierenKnopf, false); });
   });
 
   // ================= KUNDENBLATT =================
@@ -627,6 +862,65 @@
     invoke("jetzt_sichern")
       .then(function (pfad) { echo.textContent = "Gesichert nach: " + pfad; })
       .catch(function (e) { echo.textContent = fehlerText(e); echo.style.color = "var(--faden)"; });
+  });
+
+  // ================= MITARBEITERIN ANLEGEN =================
+  var elMaDialog = document.getElementById("mitarbeiterinDialog");
+  var elMaFehler = document.getElementById("ma-fehler");
+  var elMaErfolg = document.getElementById("ma-erfolg");
+  var elMaKnopf = document.getElementById("ma-anlegen");
+
+  document.getElementById("mitarbeiterinAnlegenKnopf").addEventListener("click", function () {
+    document.getElementById("mitarbeiterinFormular").reset();
+    document.getElementById("ma-anzeigename").value = "Mitarbeiterin 1";
+    document.getElementById("ma-benutzername").value = "mitarbeiterin1";
+    elMaFehler.hidden = true;
+    elMaErfolg.hidden = true;
+    elMaDialog.showModal();
+    document.getElementById("ma-anzeigename").focus();
+  });
+  document.getElementById("ma-abbrechen").addEventListener("click", function () { elMaDialog.close(); });
+
+  elMaKnopf.addEventListener("click", function () {
+    elMaFehler.hidden = true;
+    elMaErfolg.hidden = true;
+    var anzeigename = document.getElementById("ma-anzeigename").value.trim();
+    var benutzername = document.getElementById("ma-benutzername").value.trim();
+    var passwort = document.getElementById("ma-passwort").value;
+    var passwort2 = document.getElementById("ma-passwort2").value;
+
+    if (!anzeigename || !benutzername || !passwort || !passwort2) {
+      elMaFehler.textContent = "Bitte alle Felder ausfüllen.";
+      elMaFehler.hidden = false;
+      return;
+    }
+    if (passwort !== passwort2) {
+      elMaFehler.textContent = "Die beiden Passwörter stimmen nicht überein.";
+      elMaFehler.hidden = false;
+      return;
+    }
+    if (passwort.length < 6) {
+      elMaFehler.textContent = "Mindestens 6 Zeichen.";
+      elMaFehler.hidden = false;
+      return;
+    }
+
+    knopfSperren(elMaKnopf, true);
+    invoke("mitarbeiterin_anlegen", { benutzername: benutzername, anzeigename: anzeigename, passwort: passwort })
+      .then(function () {
+        elMaErfolg.textContent = "Angelegt. Zum Anmelden: Benutzername „" + benutzername + "“ und das eben vergebene Passwort.";
+        elMaErfolg.hidden = false;
+        document.getElementById("ma-passwort").value = "";
+        document.getElementById("ma-passwort2").value = "";
+      })
+      .catch(function (e) {
+        elMaFehler.textContent = fehlerText(e);
+        elMaFehler.hidden = false;
+      })
+      .finally(function () { knopfSperren(elMaKnopf, false); });
+  });
+  document.getElementById("mitarbeiterinFormular").querySelectorAll("input").forEach(function (f) {
+    f.addEventListener("keydown", enterLoest(function () { elMaKnopf.click(); }));
   });
 
   // ================= REITER =================

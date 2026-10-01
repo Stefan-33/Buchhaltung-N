@@ -98,6 +98,38 @@ pub fn kunde_anlegen(conn: &Connection, eingabe: NeuerKunde) -> Result<Kunde, Ge
     kunde_holen(conn, id)
 }
 
+/// Masseneinspielung aus Excel/LibreOffice - die Oberflaeche hat die
+/// eingefuegte Tabelle bereits in NeuerKunde-Zeilen zerlegt. Laeuft in
+/// einer einzigen Transaktion: entweder kommt alles rein, oder bei einem
+/// echten Fehler nichts, statt einer halbfertigen Liste.
+pub fn kunden_importieren(conn: &mut Connection, eingaben: Vec<NeuerKunde>) -> Result<usize, GeschaeftFehler> {
+    let tx = conn.transaction()?;
+    let mut angelegt = 0usize;
+    for eingabe in eingaben {
+        let name = eingabe.name.trim();
+        if name.is_empty() {
+            continue; // Zeile ohne Namen ueberspringen statt den ganzen Import abzubrechen
+        }
+        let nummer = naechster_zaehler(&tx, "naechste_kundennummer", 101)?;
+        tx.execute(
+            "INSERT INTO kunden (nummer, name, vorname, telefon, ort, adresse, email)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                nummer,
+                name,
+                eingabe.vorname.trim(),
+                eingabe.telefon.trim(),
+                eingabe.ort.trim(),
+                eingabe.adresse.trim(),
+                eingabe.email.trim(),
+            ],
+        )?;
+        angelegt += 1;
+    }
+    tx.commit()?;
+    Ok(angelegt)
+}
+
 const KUNDE_MIT_KENNZAHLEN_SQL: &str = r#"
     SELECT
         k.id, k.nummer, k.name, k.vorname, k.telefon, k.ort, k.adresse,
@@ -271,4 +303,52 @@ pub fn monatsstatistik(conn: &Connection, jahr: i32) -> Result<Vec<MonatsZeile>,
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(zeilen)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_db() -> Connection {
+        // db::verbinden() braucht einen echten Dateipfad (%APPDATA%) - fuer
+        // einen Test reicht eine In-Memory-Datenbank mit demselben Schema.
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::schema_fuer_tests_anlegen(&conn);
+        conn
+    }
+
+    // Genau der Fall aus Stefans Anfrage: eine aus Excel/LibreOffice
+    // eingefuegte Tabelle, in der Oberflaeche bereits in NeuerKunde-Zeilen
+    // zerlegt. Eine Zeile ohne Namen (z.B. eine leere Excel-Zeile) muss
+    // uebersprungen werden statt den ganzen Import abzubrechen, und die
+    // fortlaufende Kundennummer muss trotzdem bei 101 beginnen.
+    #[test]
+    fn kunden_import_ueberspringt_namenlose_zeilen_und_vergibt_nummern() {
+        let mut conn = test_db();
+        let eingaben = vec![
+            NeuerKunde {
+                name: "Meier".into(), vorname: "Hans".into(), telefon: "0791234567".into(),
+                ort: "Wollerau".into(), adresse: "Seestrasse 1".into(), email: "hans@meier.ch".into(),
+            },
+            NeuerKunde {
+                // Leere Excel-Zeile - darf nicht als Kunde "Niemand" landen.
+                name: "".into(), vorname: "".into(), telefon: "".into(),
+                ort: "".into(), adresse: "".into(), email: "".into(),
+            },
+            NeuerKunde {
+                name: "  Keller  ".into(), vorname: "Anna".into(), telefon: "".into(),
+                ort: "Freienbach".into(), adresse: "".into(), email: "".into(),
+            },
+        ];
+
+        let anzahl = kunden_importieren(&mut conn, eingaben).unwrap();
+        assert_eq!(anzahl, 2, "die namenlose Zeile darf nicht mitgezaehlt werden");
+
+        let kunden = kunden_suchen(&conn, "", false).unwrap();
+        assert_eq!(kunden.len(), 2);
+        assert_eq!(kunden[0].nummer, 101);
+        assert_eq!(kunden[0].name, "Meier");
+        assert_eq!(kunden[1].nummer, 102);
+        assert_eq!(kunden[1].name, "Keller", "fuehrende/folgende Leerzeichen muessen getrimmt sein");
+    }
 }
