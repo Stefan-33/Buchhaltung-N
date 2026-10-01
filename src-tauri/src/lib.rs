@@ -56,9 +56,11 @@ pub fn run() {
             commands::monatsstatistik,
             commands::jetzt_sichern,
             commands::stunden_erfassen,
+            commands::stunden_importieren,
             commands::eigene_stunden,
             commands::alle_stunden,
             commands::stunden_loeschen,
+            commands::alle_benutzer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

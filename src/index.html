@@ -175,15 +175,31 @@
         <div class="tafel">
           <div class="tafel-kopf">
             <h2>Stunden erfassen</h2>
-            <p>Tag und Anzahl Stunden eintragen - fertig</p>
+            <p>Vormittag und/oder Nachmittag - wie gewohnt, Stunden werden automatisch berechnet</p>
           </div>
           <div class="abschnitt">
             <label class="feld"><span>Datum</span><input id="st-datum" type="date"></label>
-            <label class="feld"><span>Stunden</span><input id="st-stunden" type="number" step="0.25" min="0" placeholder="z. B. 6.5"></label>
+            <div class="zeitbloecke">
+              <div>
+                <span class="zeitblock-titel">Vormittag</span>
+                <div class="zeitblock-paar">
+                  <label class="feld" style="margin-top:0"><span>Beginn</span><input id="st-vm-beginn" type="time"></label>
+                  <label class="feld" style="margin-top:0"><span>Ende</span><input id="st-vm-ende" type="time"></label>
+                </div>
+              </div>
+              <div>
+                <span class="zeitblock-titel">Nachmittag</span>
+                <div class="zeitblock-paar">
+                  <label class="feld" style="margin-top:0"><span>Beginn</span><input id="st-nm-beginn" type="time"></label>
+                  <label class="feld" style="margin-top:0"><span>Ende</span><input id="st-nm-ende" type="time"></label>
+                </div>
+              </div>
+            </div>
             <label class="feld"><span>Notiz (optional)</span><input id="st-notiz" placeholder="z. B. Krank, Feiertag…"></label>
             <p id="st-fehler" class="login-fehler" hidden></p>
             <div class="knopfreihe">
               <button class="knopf knopf-voll" id="stundenEintragenKnopf">Eintragen</button>
+              <button class="knopf" id="stundenImportKnopf">Stunden importieren</button>
             </div>
           </div>
         </div>
@@ -311,6 +327,31 @@
     <div class="knopfreihe" style="justify-content:flex-end">
       <button type="button" class="knopf" id="ki-abbrechen">Schliessen</button>
       <button type="button" class="knopf knopf-voll" id="ki-importieren" disabled>Importieren</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============ STUNDEN IMPORTIEREN (Dialog) ============ -->
+<dialog id="stundenImportDialog" class="dialog">
+  <div class="dialog-karte dialog-karte-breit">
+    <h2>Stunden importieren</h2>
+    <p class="login-hinweis" style="margin-top:0">
+      Aus Excel/LibreOffice die Spalten in <strong>genau dieser Reihenfolge</strong> kopieren und
+      unten einfügen: Datum, Beginn Vormittag, Ende Vormittag, Beginn Nachmittag, Ende Nachmittag,
+      Notiz (optional). Ein Zeitblock darf ganz leer bleiben (z. B. nur nachmittags gearbeitet) -
+      dann beide Felder dieses Blocks leer lassen. Datum als TT.MM.JJJJ oder JJJJ-MM-TT, Uhrzeit
+      als HH:MM.
+    </p>
+    <label class="feld" id="sti-fuer-wen-zeile" hidden>
+      <span>Für wen?</span>
+      <select id="sti-fuer-wen"></select>
+    </label>
+    <textarea id="sti-text" class="textarea-eingabe" rows="6" placeholder="Hier einfügen…"></textarea>
+    <div id="sti-vorschau"></div>
+    <p id="sti-fehler" class="login-fehler" hidden></p>
+    <div class="knopfreihe" style="justify-content:flex-end">
+      <button type="button" class="knopf" id="sti-abbrechen">Schliessen</button>
+      <button type="button" class="knopf knopf-voll" id="sti-importieren" disabled>Importieren</button>
     </div>
   </div>
 </dialog>

@@ -107,20 +107,37 @@ pub fn jetzt_sichern(conn: &Connection) -> Result<PathBuf, String> {
     //    eigene Lohnabrechnung in Excel, das Programm rechnet selbst nichts aus.
     let mut stmt = conn
         .prepare(
-            "SELECT b.anzeigename, a.datum, a.stunden, a.notiz
+            "SELECT b.anzeigename, a.datum, a.vm_beginn, a.vm_ende, a.nm_beginn, a.nm_ende, a.notiz
              FROM arbeitsstunden a JOIN benutzer b ON b.id = a.benutzer_id
              ORDER BY a.datum, b.anzeigename",
         )
         .map_err(|e| e.to_string())?;
-    let mut stunden_csv = String::from("Name,Datum,Stunden,Notiz\n");
+    let mut stunden_csv = String::from("Name,Datum,BeginnVormittag,EndeVormittag,BeginnNachmittag,EndeNachmittag,Stunden,Notiz\n");
     let zeilen = stmt
         .query_map([], |z| {
-            Ok((z.get::<_, String>(0)?, z.get::<_, String>(1)?, z.get::<_, f64>(2)?, z.get::<_, String>(3)?))
+            Ok((
+                z.get::<_, String>(0)?,
+                z.get::<_, String>(1)?,
+                z.get::<_, Option<String>>(2)?,
+                z.get::<_, Option<String>>(3)?,
+                z.get::<_, Option<String>>(4)?,
+                z.get::<_, Option<String>>(5)?,
+                z.get::<_, String>(6)?,
+            ))
         })
         .map_err(|e| e.to_string())?;
     for zeile in zeilen {
-        let (name, datum, stunden, notiz) = zeile.map_err(|e| e.to_string())?;
-        stunden_csv.push_str(&format!("{},{datum},{stunden:.2},{}\n", csv_feld(&name), csv_feld(&notiz)));
+        let (name, datum, vm_beginn, vm_ende, nm_beginn, nm_ende, notiz) = zeile.map_err(|e| e.to_string())?;
+        let stunden = crate::stunden::stunden_aus_bloecken(&vm_beginn, &vm_ende, &nm_beginn, &nm_ende);
+        stunden_csv.push_str(&format!(
+            "{},{datum},{},{},{},{},{stunden:.2},{}\n",
+            csv_feld(&name),
+            vm_beginn.unwrap_or_default(),
+            vm_ende.unwrap_or_default(),
+            nm_beginn.unwrap_or_default(),
+            nm_ende.unwrap_or_default(),
+            csv_feld(&notiz)
+        ));
     }
     schreiben(&ziel_ordner.join("stunden.csv"), &stunden_csv)?;
 

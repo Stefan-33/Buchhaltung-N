@@ -249,6 +249,14 @@ input{font:inherit;color:inherit;}
 .import-zusammenfassung{font-size:12.5px;color:var(--tinte-2);background:var(--blatt-2);border-radius:8px;padding:9px 12px;margin:10px 0;}
 .import-warnung{font-size:12.5px;color:var(--faden);background:var(--faden-matt);border-radius:8px;padding:9px 12px;margin:10px 0;}
 .zeile-uebersprungen{opacity:.45;text-decoration:line-through;}
+.feld select{width:100%;padding:10px 12px;border:1px solid var(--linie-stark);border-radius:9px;background:var(--grund);font-size:15px;color:inherit;}
+.feld select:focus{outline:2px solid var(--gruen);outline-offset:1px;border-color:var(--gruen);}
+
+/* ---------- Stunden ---------- */
+.zeitbloecke{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;}
+.zeitblock-titel{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--tinte-3);margin-bottom:7px;}
+.zeitblock-paar{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+@media (max-width:560px){.zeitbloecke{grid-template-columns:1fr;}}
 
 /* ---------- Drucken: nur die Quittung, sonst nichts ---------- */
 @media print{

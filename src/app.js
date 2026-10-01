@@ -864,9 +864,14 @@
   // Wunsch war ausdruecklich, das Erfassen der Stunden nicht mit den
   // Kunden zu vermischen. Rechnet keinen Lohn aus - das passiert weiterhin
   // in Stefans eigenem Excel, hier gibt's nur die rohen Stunden (auch als
-  // stunden.csv in der Sicherung, siehe "Jetzt sichern").
+  // stunden.csv in der Sicherung, siehe "Jetzt sichern"). Erfassung wie in
+  // Stefans bisheriger Excel-Vorlage: pro Tag zwei Zeitbloecke (Vormittag/
+  // Nachmittag), die Stunden werden daraus berechnet statt eingetippt.
   var elStDatum = document.getElementById("st-datum");
-  var elStStunden = document.getElementById("st-stunden");
+  var elStVmBeginn = document.getElementById("st-vm-beginn");
+  var elStVmEnde = document.getElementById("st-vm-ende");
+  var elStNmBeginn = document.getElementById("st-nm-beginn");
+  var elStNmEnde = document.getElementById("st-nm-ende");
   var elStNotiz = document.getElementById("st-notiz");
   var elStFehler = document.getElementById("st-fehler");
   var elStEintragenKnopf = document.getElementById("stundenEintragenKnopf");
@@ -885,12 +890,21 @@
   }
   elStDatum.value = datumHeute();
 
+  // Zeigt einen Eintrag wie "13:30–16:00 (2.5 Std.)" bzw. mit beiden
+  // Bloecken "08:30–11:00 + 13:30–16:00 (5.5 Std.)".
+  function stZeitAnzeige(e) {
+    var teile = [];
+    if (e.vm_beginn && e.vm_ende) teile.push(e.vm_beginn + "–" + e.vm_ende);
+    if (e.nm_beginn && e.nm_ende) teile.push(e.nm_beginn + "–" + e.nm_ende);
+    return teile.join(" + ") + " (" + e.stunden.toLocaleString("de-CH") + " Std.)";
+  }
+
   function stStundenZeile(e, loeschbar) {
     var notiz = e.notiz ? " <span style=\"color:var(--tinte-3)\">– " + escapeHtml(e.notiz) + "</span>" : "";
     var loeschKnopf = loeschbar
       ? '<button type="button" class="weg" data-id="' + e.id + '" title="Eintrag löschen">×</button>'
       : "";
-    return "<tr><td>" + datumKurz(e.datum) + "</td><td>" + e.stunden.toLocaleString("de-CH") + " Std." + notiz + "</td><td>" + loeschKnopf + "</td></tr>";
+    return "<tr><td>" + datumKurz(e.datum) + "</td><td>" + stZeitAnzeige(e) + notiz + "</td><td>" + loeschKnopf + "</td></tr>";
   }
 
   function stEigeneZeichnen(eintraege) {
@@ -978,31 +992,44 @@
 
   elStEintragenKnopf.addEventListener("click", function () {
     elStFehler.hidden = true;
-    var datum = elStDatum.value;
-    var stunden = parseFloat(elStStunden.value);
-    var notiz = elStNotiz.value.trim();
+    var eingabe = {
+      datum: elStDatum.value,
+      vm_beginn: elStVmBeginn.value,
+      vm_ende: elStVmEnde.value,
+      nm_beginn: elStNmBeginn.value,
+      nm_ende: elStNmEnde.value,
+      notiz: elStNotiz.value.trim(),
+    };
 
-    if (!datum) {
+    if (!eingabe.datum) {
       elStFehler.textContent = "Bitte ein Datum wählen.";
       elStFehler.hidden = false;
       return;
     }
-    if (!(stunden > 0)) {
-      elStFehler.textContent = "Bitte eine Stundenzahl grösser als 0 eingeben.";
+    if (!!eingabe.vm_beginn !== !!eingabe.vm_ende || !!eingabe.nm_beginn !== !!eingabe.nm_ende) {
+      elStFehler.textContent = "Bei einem Zeitblock fehlt Beginn oder Ende.";
+      elStFehler.hidden = false;
+      return;
+    }
+    if (!eingabe.vm_beginn && !eingabe.nm_beginn) {
+      elStFehler.textContent = "Bitte mindestens einen Zeitblock (Vormittag oder Nachmittag) ausfüllen.";
       elStFehler.hidden = false;
       return;
     }
 
     knopfSperren(elStEintragenKnopf, true);
-    invoke("stunden_erfassen", { benutzer_id: aktuellerBenutzer.id, datum: datum, stunden: stunden, notiz: notiz })
+    invoke("stunden_erfassen", { benutzer_id: aktuellerBenutzer.id, eingabe: eingabe })
       .then(function () {
-        elStStunden.value = "";
+        elStVmBeginn.value = "";
+        elStVmEnde.value = "";
+        elStNmBeginn.value = "";
+        elStNmEnde.value = "";
         elStNotiz.value = "";
         elStDatum.value = datumHeute();
         // Zur Sicherheit auf den Monat des gerade erfassten Datums springen -
         // sonst sieht man den neuen Eintrag nicht, falls man gerade einen
         // anderen Monat betrachtet hat.
-        var teile = datum.split("-");
+        var teile = eingabe.datum.split("-");
         stJahr = Number(teile[0]);
         stMonat = Number(teile[1]);
         stMonatLaden();
@@ -1012,6 +1039,145 @@
         elStFehler.hidden = false;
       })
       .finally(function () { knopfSperren(elStEintragenKnopf, false); });
+  });
+
+  // ================= STUNDEN IMPORTIEREN =================
+  // Fester Spalten-Reihenfolge (keine Kopfzeilen-Erkennung wie beim
+  // Kunden-Import): Datum, Vormittag-Beginn, Vormittag-Ende,
+  // Nachmittag-Beginn, Nachmittag-Ende, Notiz. Eine automatische Erkennung
+  // waere hier riskant, weil "Beginn"/"Ende" in Stefans Excel-Vorlage
+  // zweimal vorkommen (einmal pro Zeitblock) und sich nicht eindeutig
+  // zuordnen liessen.
+  var elStiDialog = document.getElementById("stundenImportDialog");
+  var elStiFuerWenZeile = document.getElementById("sti-fuer-wen-zeile");
+  var elStiFuerWen = document.getElementById("sti-fuer-wen");
+  var elStiText = document.getElementById("sti-text");
+  var elStiVorschau = document.getElementById("sti-vorschau");
+  var elStiFehler = document.getElementById("sti-fehler");
+  var elStiImportierenKnopf = document.getElementById("sti-importieren");
+  var stiGueltigeEintraege = [];
+
+  function stiDatumNormalisieren(s) {
+    s = String(s || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    var ch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+    if (ch) {
+      var jahr = ch[3].length === 2 ? "20" + ch[3] : ch[3];
+      return jahr + "-" + ch[2].padStart(2, "0") + "-" + ch[1].padStart(2, "0");
+    }
+    return "";
+  }
+
+  function stiZeitNormalisieren(s) {
+    var m = String(s || "").trim().match(/^(\d{1,2}):(\d{2})/);
+    return m ? m[1].padStart(2, "0") + ":" + m[2] : "";
+  }
+
+  // Nutzt dieselben Zerlege-Hilfsfunktionen wie "Kunden importieren"
+  // (kiZeilenAufteilen/kiTrennzeichenErkennen/kiZeileSpalten) - die
+  // Tab/Semikolon/Komma-Erkennung ist dieselbe, egal was eingefuegt wird.
+  function stiEintraegeAnalysieren(text) {
+    var zeilen = kiZeilenAufteilen(text);
+    if (!zeilen.length) return [];
+    var trenner = kiTrennzeichenErkennen(zeilen[0]);
+    var tabelle = zeilen.map(function (z) { return kiZeileSpalten(z, trenner); });
+    return tabelle
+      .map(function (spalten) {
+        return {
+          datum: stiDatumNormalisieren(spalten[0]),
+          vm_beginn: stiZeitNormalisieren(spalten[1]),
+          vm_ende: stiZeitNormalisieren(spalten[2]),
+          nm_beginn: stiZeitNormalisieren(spalten[3]),
+          nm_ende: stiZeitNormalisieren(spalten[4]),
+          notiz: String((spalten[5] || "")).trim(),
+        };
+      })
+      .filter(function (e) { return e.datum; }); // kein erkennbares Datum -> z.B. die Kopfzeile selbst
+  }
+
+  function stiVorschauZeichnen() {
+    var eintraege = stiEintraegeAnalysieren(elStiText.value);
+    if (!eintraege.length) {
+      elStiVorschau.innerHTML = "";
+      elStiImportierenKnopf.disabled = true;
+      stiGueltigeEintraege = [];
+      return;
+    }
+
+    stiGueltigeEintraege = eintraege.filter(function (e) {
+      return (e.vm_beginn && e.vm_ende) || (e.nm_beginn && e.nm_ende);
+    });
+    var ungueltig = eintraege.length - stiGueltigeEintraege.length;
+
+    var zeilenHtml = eintraege.slice(0, 50).map(function (e) {
+      var hatZeit = (e.vm_beginn && e.vm_ende) || (e.nm_beginn && e.nm_ende);
+      var klasse = hatZeit ? "" : ' class="zeile-uebersprungen"';
+      var vm = e.vm_beginn && e.vm_ende ? e.vm_beginn + "–" + e.vm_ende : "–";
+      var nm = e.nm_beginn && e.nm_ende ? e.nm_beginn + "–" + e.nm_ende : "–";
+      return "<tr" + klasse + "><td>" + escapeHtml(e.datum) + "</td><td>" + vm + "</td><td>" + nm + "</td><td>" + escapeHtml(e.notiz) + "</td></tr>";
+    }).join("");
+    var mehrHinweis = eintraege.length > 50 ? " (zeigt die ersten 50 von " + eintraege.length + ")" : "";
+
+    elStiVorschau.innerHTML =
+      '<div class="import-zusammenfassung">' + stiGueltigeEintraege.length + " Einträge werden importiert" +
+      (ungueltig ? ", " + ungueltig + " ohne erkennbaren Zeitblock werden übersprungen" : "") + mehrHinweis + "</div>" +
+      '<div class="tabellenrahmen"><table class="auflistung"><thead><tr>' +
+      "<th>Datum</th><th>Vormittag</th><th>Nachmittag</th><th>Notiz</th>" +
+      "</tr></thead><tbody>" + zeilenHtml + "</tbody></table></div>";
+
+    elStiImportierenKnopf.disabled = stiGueltigeEintraege.length === 0;
+  }
+
+  document.getElementById("stundenImportKnopf").addEventListener("click", function () {
+    elStiText.value = "";
+    elStiVorschau.innerHTML = "";
+    elStiFehler.hidden = true;
+    elStiImportierenKnopf.disabled = true;
+    stiGueltigeEintraege = [];
+
+    // Nur Papa/Mama duerfen Stunden fuer eine andere Person nachtragen -
+    // eine Mitarbeiterin importiert immer nur fuer sich selbst.
+    if (aktuellerBenutzer.rolle === "inhaber") {
+      elStiFuerWenZeile.hidden = false;
+      invoke("alle_benutzer")
+        .then(function (benutzer) {
+          elStiFuerWen.innerHTML = benutzer
+            .map(function (b) {
+              var ausgewaehlt = b.id === aktuellerBenutzer.id ? " selected" : "";
+              return '<option value="' + b.id + '"' + ausgewaehlt + ">" + escapeHtml(b.anzeigename) + "</option>";
+            })
+            .join("");
+        })
+        .catch(function () { elStiFuerWen.innerHTML = '<option value="' + aktuellerBenutzer.id + '">' + escapeHtml(aktuellerBenutzer.anzeigename) + "</option>"; });
+    } else {
+      elStiFuerWenZeile.hidden = true;
+    }
+
+    elStiDialog.showModal();
+    elStiText.focus();
+  });
+  document.getElementById("sti-abbrechen").addEventListener("click", function () { elStiDialog.close(); });
+  elStiText.addEventListener("input", debounce(stiVorschauZeichnen, 150));
+
+  document.getElementById("sti-importieren").addEventListener("click", function () {
+    if (!stiGueltigeEintraege.length) return;
+    var fuerWenId = aktuellerBenutzer.rolle === "inhaber" && elStiFuerWen.value
+      ? Number(elStiFuerWen.value)
+      : aktuellerBenutzer.id;
+
+    elStiFehler.hidden = true;
+    knopfSperren(elStiImportierenKnopf, true);
+    invoke("stunden_importieren", { benutzer_id: fuerWenId, eingaben: stiGueltigeEintraege })
+      .then(function (anzahl) {
+        elStiDialog.close();
+        if (fuerWenId === aktuellerBenutzer.id) stMonatLaden();
+        alert(anzahl + (anzahl === 1 ? " Eintrag wurde importiert." : " Einträge wurden importiert."));
+      })
+      .catch(function (e) {
+        elStiFehler.textContent = fehlerText(e);
+        elStiFehler.hidden = false;
+      })
+      .finally(function () { knopfSperren(elStiImportierenKnopf, false); });
   });
 
   document.getElementById("sicherungKnopf").addEventListener("click", function () {

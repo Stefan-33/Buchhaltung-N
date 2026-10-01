@@ -113,11 +113,19 @@ fn schema_anlegen(conn: &Connection) -> rusqlite::Result<()> {
         -- zusaetzlich alle zusammen fuer die Lohnabrechnung (die passiert
         -- weiterhin in Stefans eigenem Excel - das Programm liefert nur die
         -- rohen Stunden, siehe stunden.csv in der Sicherung).
+        --
+        -- Wie in Stefans bisheriger Excel-Vorlage: pro Tag zwei Zeitbloecke
+        -- (Vormittag, Nachmittag), je als "HH:MM"-Text, ein Block darf leer
+        -- (NULL) bleiben. Die Stundenzahl wird daraus berechnet, nicht
+        -- separat gespeichert (stunden.rs).
         CREATE TABLE IF NOT EXISTS arbeitsstunden (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             benutzer_id     INTEGER NOT NULL REFERENCES benutzer(id),
             datum           TEXT NOT NULL,
-            stunden         REAL NOT NULL,
+            vm_beginn       TEXT,
+            vm_ende         TEXT,
+            nm_beginn       TEXT,
+            nm_ende         TEXT,
             notiz           TEXT NOT NULL DEFAULT '',
             erstellt_am     TEXT NOT NULL DEFAULT (datetime('now'))
         );

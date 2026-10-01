@@ -127,21 +127,31 @@ pub fn jetzt_sichern(zustand: State<AppZustand>) -> Antwort<String> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn stunden_erfassen(
+pub fn stunden_erfassen(zustand: State<AppZustand>, benutzer_id: i64, eingabe: stunden::NeuerStundenEintrag) -> Antwort<StundenEintrag> {
+    let conn = verbindung_sperren(&zustand);
+    stunden::stunden_erfassen(&conn, benutzer_id, &eingabe).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn stunden_importieren(
     zustand: State<AppZustand>,
     benutzer_id: i64,
-    datum: String,
-    stunden: f64,
-    notiz: String,
-) -> Antwort<StundenEintrag> {
-    let conn = verbindung_sperren(&zustand);
-    stunden::stunden_erfassen(&conn, benutzer_id, &datum, stunden, &notiz).map_err(|e| e.to_string())
+    eingaben: Vec<stunden::NeuerStundenEintrag>,
+) -> Antwort<usize> {
+    let mut conn = verbindung_sperren(&zustand);
+    stunden::stunden_importieren(&mut conn, benutzer_id, eingaben).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn eigene_stunden(zustand: State<AppZustand>, benutzer_id: i64, jahr: i32, monat: u32) -> Antwort<Vec<StundenEintrag>> {
     let conn = verbindung_sperren(&zustand);
     stunden::eigene_stunden(&conn, benutzer_id, jahr, monat).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn alle_benutzer(zustand: State<AppZustand>) -> Antwort<Vec<Benutzer>> {
+    let conn = verbindung_sperren(&zustand);
+    auth::alle_benutzer(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]

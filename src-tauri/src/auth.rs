@@ -112,6 +112,19 @@ pub fn anmelden(conn: &Connection, benutzername: &str, passwort: &str) -> Result
     }
 }
 
+/// Fuer den "Fuer wen?"-Auswahl beim Stunden-Import: Papa/Mama koennen
+/// damit Stunden fuer eine bestimmte Mitarbeiterin nachtragen, statt nur
+/// fuer sich selbst.
+pub fn alle_benutzer(conn: &Connection) -> Result<Vec<Benutzer>, AuthFehler> {
+    let mut stmt = conn.prepare("SELECT id, benutzername, anzeigename, rolle FROM benutzer ORDER BY anzeigename")?;
+    let zeilen = stmt
+        .query_map([], |z| {
+            Ok(Benutzer { id: z.get(0)?, benutzername: z.get(1)?, anzeigename: z.get(2)?, rolle: z.get(3)? })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(zeilen)
+}
+
 pub fn passwort_aendern(conn: &Connection, benutzer_id: i64, neues_passwort: &str) -> Result<(), AuthFehler> {
     let hash = passwort_hashen(neues_passwort)?;
     conn.execute("UPDATE benutzer SET passwort_hash = ?1 WHERE id = ?2", (hash, benutzer_id))?;
