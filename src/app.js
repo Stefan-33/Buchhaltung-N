@@ -40,12 +40,35 @@
     programmStarten();
   }
 
-  // Waehrend eine Anfrage laeuft, den Absenden-Knopf sperren - sonst kann
-  // ein Doppelklick oder "Enter + Klick" dasselbe Formular zweimal
-  // losschicken (genau das ist beim ersten Test passiert).
+  // Waehrend eine Anfrage laeuft, den Absenden-Knopf sperren UND den Text
+  // sichtbar auf "Lädt ..." umstellen - sonst kann ein Doppelklick das
+  // Formular zweimal losschicken, und man sieht von aussen nicht, ob
+  // ueberhaupt etwas passiert oder alles wirklich haengt.
   function formularSperren(formular, gesperrt) {
     var knopf = formular.querySelector('button[type="submit"]');
-    if (knopf) knopf.disabled = gesperrt;
+    if (!knopf) return;
+    knopf.disabled = gesperrt;
+    if (gesperrt) {
+      knopf.dataset.text = knopf.textContent;
+      knopf.textContent = "Lädt …";
+    } else if (knopf.dataset.text) {
+      knopf.textContent = knopf.dataset.text;
+    }
+  }
+
+  // Haengt eine Anfrage trotz allem fest (z.B. eine blockierte Datei durch
+  // ein noch laufendes altes Programmfenster), soll das nicht unsichtbar
+  // ewig weiterlaufen, sondern nach 10 Sekunden eine klare Meldung zeigen.
+  function mitZeitgrenze(versprechen, sekunden) {
+    return Promise.race([
+      versprechen,
+      new Promise(function (_, ablehnen) {
+        setTimeout(function () {
+          ablehnen("Das dauert ungewöhnlich lange. Bitte das Programm ganz schliessen " +
+            "(im Taskmanager prüfen, ob es noch läuft) und neu öffnen.");
+        }, sekunden * 1000);
+      }),
+    ]);
   }
 
   elLoginFormular.addEventListener("submit", function (ev) {
@@ -55,7 +78,7 @@
     var passwort = document.getElementById("login-passwort").value;
 
     formularSperren(elLoginFormular, true);
-    invoke("anmelden", { benutzername: benutzername, passwort: passwort })
+    mitZeitgrenze(invoke("anmelden", { benutzername: benutzername, passwort: passwort }), 10)
       .then(nachAnmeldung)
       .catch(function (e) {
         elLoginFehler.textContent = fehlerText(e);
@@ -86,7 +109,10 @@
     }
 
     formularSperren(elEinrichtungFormular, true);
-    invoke("ersteinrichtung_abschliessen", { benutzername: benutzername, anzeigename: anzeigename, passwort: passwort })
+    mitZeitgrenze(
+      invoke("ersteinrichtung_abschliessen", { benutzername: benutzername, anzeigename: anzeigename, passwort: passwort }),
+      10
+    )
       .then(nachAnmeldung)
       .catch(function (e) {
         elEinrichtungFehler.textContent = fehlerText(e);

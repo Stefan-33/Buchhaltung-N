@@ -107,3 +107,46 @@ pub fn passwort_aendern(conn: &Connection, benutzer_id: i64, neues_passwort: &st
     conn.execute("UPDATE benutzer SET passwort_hash = ?1 WHERE id = ?2", (hash, benutzer_id))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    // Simuliert exakt den Ablauf, den Stefan am Bildschirm hatte: leere
+    // Datenbank, Ersteinrichtung mit denselben Werten. Soll in deutlich
+    // unter einer Sekunde durchlaufen, ohne Panik und ohne zu haengen.
+    #[test]
+    fn ersteinrichtung_laeuft_schnell_und_fehlerfrei_durch() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE benutzer (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                benutzername TEXT NOT NULL UNIQUE,
+                anzeigename TEXT NOT NULL,
+                passwort_hash TEXT NOT NULL,
+                rolle TEXT NOT NULL DEFAULT 'inhaber',
+                erstellt_am TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+
+        assert!(ist_ersteinrichtung(&conn).unwrap(), "Datenbank sollte leer sein");
+
+        let start = Instant::now();
+        let benutzer = ersteinrichtung_abschliessen(&conn, "papa", "hansueli", "12345678").unwrap();
+        let dauer = start.elapsed();
+
+        assert_eq!(benutzer.benutzername, "papa");
+        assert_eq!(benutzer.anzeigename, "hansueli");
+        assert!(!ist_ersteinrichtung(&conn).unwrap(), "Konto sollte jetzt existieren");
+        assert!(dauer.as_secs() < 2, "Dauerte verdaechtig lang: {:?}", dauer);
+
+        // Direkt danach normal einloggen - muss ebenfalls klappen.
+        let eingeloggt = anmelden(&conn, "papa", "12345678").unwrap();
+        assert_eq!(eingeloggt.id, benutzer.id);
+
+        // Falsches Passwort muss sauber abgelehnt werden, nicht haengen.
+        assert!(anmelden(&conn, "papa", "falsch").is_err());
+    }
+}
