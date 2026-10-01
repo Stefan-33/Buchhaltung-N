@@ -55,11 +55,21 @@
   var elEinrichtungFormular = document.getElementById("einrichtung-formular");
   var elEinrichtungFehler = document.getElementById("einrichtung-fehler");
 
+  // Blendet einen ganzen Bildschirm (Login / Ersteinrichtung / Programm)
+  // ein oder aus - setzt "hidden" UND "inert" gemeinsam. "inert" ist die
+  // doppelte Absicherung: selbst wenn irgendeine CSS-Regel das Verstecken
+  // optisch aushebeln wuerde, bleibt ein unsichtbarer Bildschirm trotzdem
+  // garantiert unklickbar und wird von der Tab-Taste komplett uebersprungen.
+  function bildschirmZeigen(el, zeigen) {
+    el.hidden = !zeigen;
+    el.inert = !zeigen;
+  }
+
   function nachAnmeldung(benutzer) {
     aktuellerBenutzer = benutzer;
-    elLoginBuehne.hidden = true;
-    elEinrichtungBuehne.hidden = true;
-    elProgramm.hidden = false;
+    bildschirmZeigen(elLoginBuehne, false);
+    bildschirmZeigen(elEinrichtungBuehne, false);
+    bildschirmZeigen(elProgramm, true);
     document.getElementById("angemeldet-als").textContent = "Angemeldet: " + benutzer.anzeigename;
     programmStarten();
   }
@@ -182,8 +192,8 @@
 
   document.getElementById("abmeldenKnopf").addEventListener("click", function () {
     aktuellerBenutzer = null;
-    elProgramm.hidden = true;
-    elLoginBuehne.hidden = false;
+    bildschirmZeigen(elProgramm, false);
+    bildschirmZeigen(elLoginBuehne, true);
     elLoginFormular.reset();
     document.getElementById("login-benutzername").focus();
   });
@@ -193,17 +203,17 @@
   invoke("ist_ersteinrichtung")
     .then(function (leer) {
       if (leer) {
-        elEinrichtungBuehne.hidden = false;
+        bildschirmZeigen(elEinrichtungBuehne, true);
         document.getElementById("ek-anzeigename").focus();
       } else {
-        elLoginBuehne.hidden = false;
+        bildschirmZeigen(elLoginBuehne, true);
         document.getElementById("login-benutzername").focus();
       }
     })
     .catch(function () {
       // Falls die Pruefung selbst scheitert, lieber den normalen Login
       // zeigen als die Seite leer zu lassen.
-      elLoginBuehne.hidden = false;
+      bildschirmZeigen(elLoginBuehne, true);
     });
 
   // ================= KUNDENLISTE =================

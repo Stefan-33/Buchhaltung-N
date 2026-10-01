@@ -213,7 +213,14 @@ input{font:inherit;color:inherit;}
 }
 
 /* ---------- Login ---------- */
-.login-buehne{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--grund);z-index:100;}
+/* WICHTIG: ":not([hidden])" statt eines einfachen ".login-buehne{display:flex}".
+   Ohne das gewinnt diese Klassen-Regel gegen die eingebaute Browser-Regel
+   "[hidden]{display:none}", weil beide dieselbe Rang-Staerke haben - das
+   Element bliebe trotz hidden-Attribut sichtbar UND anklickbar. Genau das
+   war der Fehler: Login- und Ersteinrichtung-Bildschirm lagen unsichtbar
+   uebereinander, Klicks und die Tab-Taste landeten teils auf der falschen,
+   eigentlich versteckten Ebene. */
+.login-buehne:not([hidden]){position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--grund);z-index:100;}
 .login-karte{width:min(360px, 90vw);background:var(--blatt);border:1px solid var(--linie);border-radius:16px;box-shadow:var(--schatten);padding:28px 26px;}
 .login-marke{display:flex;align-items:center;gap:12px;margin-bottom:22px;}
 .login-marke svg{width:42px;height:42px;border-radius:10px;flex:none;}
