@@ -8,6 +8,15 @@
 </head>
 <body>
 
+<!-- Faengt jeden unerwarteten Fehler auf der ganzen Seite ab und zeigt ihn
+     hier an - egal in welchem Bildschirm man gerade ist. So bleibt nie
+     wieder etwas stumm haengen, ohne dass sichtbar wird, woran es liegt. -->
+<div id="globaler-fehler" class="globaler-fehler" hidden>
+  <strong>Es ist ein unerwarteter Fehler aufgetreten:</strong>
+  <span id="globaler-fehler-text"></span>
+  <button type="button" id="globaler-fehler-schliessen" aria-label="Schliessen">&times;</button>
+</div>
+
 <!-- ============ LOGIN ============ -->
 <!-- Startet immer eingeloggt-aus, auch wenn Papa und Mama denselben PC
      teilen - jede und jeder meldet sich mit eigenem Namen an, das ist die
@@ -31,14 +40,14 @@
     </div>
     <label class="feld">
       <span>Benutzername</span>
-      <input id="login-benutzername" type="text" autocomplete="username" required>
+      <input id="login-benutzername" type="text" autocomplete="username">
     </label>
     <label class="feld">
       <span>Passwort</span>
-      <input id="login-passwort" type="password" autocomplete="current-password" required>
+      <input id="login-passwort" type="password" autocomplete="current-password">
     </label>
     <p id="login-fehler" class="login-fehler" hidden></p>
-    <button type="submit" class="knopf knopf-voll login-knopf">Anmelden</button>
+    <button type="button" id="login-knopf" class="knopf knopf-voll login-knopf">Anmelden</button>
   </form>
 </div>
 
@@ -70,22 +79,22 @@
     </p>
     <label class="feld">
       <span>Dein Name (z. B. Rosmarie oder Beat)</span>
-      <input id="ek-anzeigename" type="text" required>
+      <input id="ek-anzeigename" type="text">
     </label>
     <label class="feld">
       <span>Benutzername</span>
-      <input id="ek-benutzername" type="text" autocomplete="username" value="papa" required>
+      <input id="ek-benutzername" type="text" autocomplete="username" value="papa">
     </label>
     <label class="feld">
       <span>Passwort (mind. 6 Zeichen)</span>
-      <input id="ek-passwort" type="password" autocomplete="new-password" minlength="6" required>
+      <input id="ek-passwort" type="password" autocomplete="new-password">
     </label>
     <label class="feld">
       <span>Passwort wiederholen</span>
-      <input id="ek-passwort2" type="password" autocomplete="new-password" minlength="6" required>
+      <input id="ek-passwort2" type="password" autocomplete="new-password">
     </label>
     <p id="einrichtung-fehler" class="login-fehler" hidden></p>
-    <button type="submit" class="knopf knopf-voll login-knopf">Konto anlegen &amp; loslegen</button>
+    <button type="button" id="einrichtung-knopf" class="knopf knopf-voll login-knopf">Konto anlegen &amp; loslegen</button>
   </form>
 </div>
 

@@ -1,6 +1,30 @@
 (function () {
   "use strict";
 
+  // Faengt WIRKLICH jeden Fehler auf der ganzen Seite ab, auch ausserhalb
+  // von try/catch-Bloecken - steht ganz am Anfang, noch vor dem ersten
+  // Zugriff auf window.__TAURI__, damit selbst ein Fehler dort sichtbar
+  // waere statt die Seite stumm nichts tun zu lassen.
+  (function () {
+    var el = document.getElementById("globaler-fehler");
+    var elText = document.getElementById("globaler-fehler-text");
+    if (!el || !elText) return; // sollte nie passieren, aber sicher ist sicher
+
+    function zeigen(text) {
+      elText.textContent = text;
+      el.hidden = false;
+    }
+    window.addEventListener("error", function (ev) {
+      zeigen((ev.message || "Unbekannter Fehler") + (ev.filename ? " (" + ev.filename + ":" + ev.lineno + ")" : ""));
+    });
+    window.addEventListener("unhandledrejection", function (ev) {
+      var grund = ev.reason;
+      zeigen(typeof grund === "string" ? grund : (grund && grund.message) || "Unbekannter Fehler (Promise abgelehnt)");
+    });
+    var schliessen = document.getElementById("globaler-fehler-schliessen");
+    if (schliessen) schliessen.addEventListener("click", function () { el.hidden = true; });
+  })();
+
   var invoke = window.__TAURI__.core.invoke;
 
   var fr = new Intl.NumberFormat("de-CH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -40,12 +64,11 @@
     programmStarten();
   }
 
-  // Waehrend eine Anfrage laeuft, den Absenden-Knopf sperren UND den Text
-  // sichtbar auf "Lädt ..." umstellen - sonst kann ein Doppelklick das
-  // Formular zweimal losschicken, und man sieht von aussen nicht, ob
-  // ueberhaupt etwas passiert oder alles wirklich haengt.
-  function formularSperren(formular, gesperrt) {
-    var knopf = formular.querySelector('button[type="submit"]');
+  // Waehrend eine Anfrage laeuft, den Knopf sperren UND den Text sichtbar
+  // auf "Lädt ..." umstellen - sonst kann ein Doppelklick dieselbe Anfrage
+  // zweimal losschicken, und man sieht von aussen nicht, ob ueberhaupt
+  // etwas passiert oder alles wirklich haengt.
+  function knopfSperren(knopf, gesperrt) {
     if (!knopf) return;
     knopf.disabled = gesperrt;
     if (gesperrt) {
@@ -71,13 +94,27 @@
     ]);
   }
 
-  elLoginFormular.addEventListener("submit", function (ev) {
-    ev.preventDefault();
+  // Bewusst KEIN <form submit> mehr - nur ein ganz normaler Knopf-Klick.
+  // Das eingebaute "Formular absenden"-Verhalten des Browsers (inklusive
+  // der eingebauten Pflichtfeld-Pruefung) hat sich in genau diesem
+  // eingebetteten Programmfenster als unzuverlaessig gezeigt: der Klick
+  // kam nicht zuverlaessig als "submit"-Ereignis an. Ein direkter
+  // Klick-Listener auf den Knopf selbst umgeht das komplett.
+  var elLoginKnopf = document.getElementById("login-knopf");
+  var elEinrichtungKnopf = document.getElementById("einrichtung-knopf");
+
+  function loginAbsenden() {
     elLoginFehler.hidden = true;
     var benutzername = document.getElementById("login-benutzername").value.trim();
     var passwort = document.getElementById("login-passwort").value;
 
-    formularSperren(elLoginFormular, true);
+    if (!benutzername || !passwort) {
+      elLoginFehler.textContent = "Bitte Benutzername und Passwort eingeben.";
+      elLoginFehler.hidden = false;
+      return;
+    }
+
+    knopfSperren(elLoginKnopf, true);
     mitZeitgrenze(invoke("anmelden", { benutzername: benutzername, passwort: passwort }), 10)
       .then(nachAnmeldung)
       .catch(function (e) {
@@ -86,17 +123,21 @@
         document.getElementById("login-passwort").value = "";
         document.getElementById("login-passwort").focus();
       })
-      .finally(function () { formularSperren(elLoginFormular, false); });
-  });
+      .finally(function () { knopfSperren(elLoginKnopf, false); });
+  }
 
-  elEinrichtungFormular.addEventListener("submit", function (ev) {
-    ev.preventDefault();
+  function einrichtungAbsenden() {
     elEinrichtungFehler.hidden = true;
     var anzeigename = document.getElementById("ek-anzeigename").value.trim();
     var benutzername = document.getElementById("ek-benutzername").value.trim();
     var passwort = document.getElementById("ek-passwort").value;
     var passwort2 = document.getElementById("ek-passwort2").value;
 
+    if (!anzeigename || !benutzername || !passwort || !passwort2) {
+      elEinrichtungFehler.textContent = "Bitte alle Felder ausfüllen.";
+      elEinrichtungFehler.hidden = false;
+      return;
+    }
     if (passwort !== passwort2) {
       elEinrichtungFehler.textContent = "Die beiden Passwörter stimmen nicht überein.";
       elEinrichtungFehler.hidden = false;
@@ -108,7 +149,7 @@
       return;
     }
 
-    formularSperren(elEinrichtungFormular, true);
+    knopfSperren(elEinrichtungKnopf, true);
     mitZeitgrenze(
       invoke("ersteinrichtung_abschliessen", { benutzername: benutzername, anzeigename: anzeigename, passwort: passwort }),
       10
@@ -118,7 +159,25 @@
         elEinrichtungFehler.textContent = fehlerText(e);
         elEinrichtungFehler.hidden = false;
       })
-      .finally(function () { formularSperren(elEinrichtungFormular, false); });
+      .finally(function () { knopfSperren(elEinrichtungKnopf, false); });
+  }
+
+  elLoginKnopf.addEventListener("click", loginAbsenden);
+  elEinrichtungKnopf.addEventListener("click", einrichtungAbsenden);
+
+  // Enter-Taste soll weiterhin wie gewohnt funktionieren - jetzt aber
+  // ueber einen eigenen, einfachen Tastendruck-Listener statt ueber das
+  // Formular-"submit"-Ereignis.
+  function enterLoest(auslöser) {
+    return function (ev) {
+      if (ev.key === "Enter") { ev.preventDefault(); auslöser(); }
+    };
+  }
+  elLoginFormular.querySelectorAll("input").forEach(function (f) {
+    f.addEventListener("keydown", enterLoest(loginAbsenden));
+  });
+  elEinrichtungFormular.querySelectorAll("input").forEach(function (f) {
+    f.addEventListener("keydown", enterLoest(einrichtungAbsenden));
   });
 
   document.getElementById("abmeldenKnopf").addEventListener("click", function () {
