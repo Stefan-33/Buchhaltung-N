@@ -3,6 +3,7 @@ mod commands;
 mod db;
 mod geschaeft;
 mod sicherung;
+mod stunden;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -54,6 +55,10 @@ pub fn run() {
             commands::auftrag_anlegen,
             commands::monatsstatistik,
             commands::jetzt_sichern,
+            commands::stunden_erfassen,
+            commands::eigene_stunden,
+            commands::alle_stunden,
+            commands::stunden_loeschen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

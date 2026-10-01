@@ -66,13 +66,16 @@
   }
 
   // Eine Mitarbeiterin sieht nur "Arbeiten" (Kunden suchen/anlegen/
-  // importieren, Aufträge buchen) - Umsatz, Auswertung, Sicherung und das
-  // Anlegen weiterer Konten bleiben Papa/Mama (Rolle "inhaber")
-  // vorbehalten. Reine Oberflaechen-Einschraenkung, keine scharfe
-  // Zugriffssperre - passt zum ueberschaubaren familiaeren Rahmen hier.
+  // importieren, Aufträge buchen) und "Stunden" (nur ihre eigenen) - Umsatz,
+  // Auswertung, Sicherung, das Anlegen weiterer Konten und die
+  // Stunden-Uebersicht aller Mitarbeiterinnen bleiben Papa/Mama (Rolle
+  // "inhaber") vorbehalten. Reine Oberflaechen-Einschraenkung, keine
+  // scharfe Zugriffssperre - passt zum ueberschaubaren familiaeren Rahmen
+  // hier.
   function rolleAnwenden(rolle) {
     var istMitarbeiterin = rolle === "mitarbeiterin";
     document.getElementById("r-monat").hidden = istMitarbeiterin;
+    document.getElementById("stAlleTafel").hidden = istMitarbeiterin;
     if (istMitarbeiterin) {
       // Falls von einem frueheren Login noch der Monat-Reiter aktiv war.
       document.getElementById("r-arbeit").click();
@@ -856,6 +859,161 @@
       .join("");
   }
 
+  // ================= STUNDEN =================
+  // Eigener Reiter, bewusst getrennt von "Arbeiten" (Kunden) - Stefans
+  // Wunsch war ausdruecklich, das Erfassen der Stunden nicht mit den
+  // Kunden zu vermischen. Rechnet keinen Lohn aus - das passiert weiterhin
+  // in Stefans eigenem Excel, hier gibt's nur die rohen Stunden (auch als
+  // stunden.csv in der Sicherung, siehe "Jetzt sichern").
+  var elStDatum = document.getElementById("st-datum");
+  var elStStunden = document.getElementById("st-stunden");
+  var elStNotiz = document.getElementById("st-notiz");
+  var elStFehler = document.getElementById("st-fehler");
+  var elStEintragenKnopf = document.getElementById("stundenEintragenKnopf");
+  var elStMonatTitel = document.getElementById("stMonatTitel");
+  var elStEigeneListe = document.getElementById("stEigeneListe");
+  var elStAlleTafel = document.getElementById("stAlleTafel");
+  var elStAlleListe = document.getElementById("stAlleListe");
+
+  var heuteFuerStunden = new Date();
+  var stJahr = heuteFuerStunden.getFullYear();
+  var stMonat = heuteFuerStunden.getMonth() + 1; // 1-12, wie auf der Rust-Seite
+
+  function datumHeute() {
+    var h = new Date();
+    return h.getFullYear() + "-" + String(h.getMonth() + 1).padStart(2, "0") + "-" + String(h.getDate()).padStart(2, "0");
+  }
+  elStDatum.value = datumHeute();
+
+  function stStundenZeile(e, loeschbar) {
+    var notiz = e.notiz ? " <span style=\"color:var(--tinte-3)\">– " + escapeHtml(e.notiz) + "</span>" : "";
+    var loeschKnopf = loeschbar
+      ? '<button type="button" class="weg" data-id="' + e.id + '" title="Eintrag löschen">×</button>'
+      : "";
+    return "<tr><td>" + datumKurz(e.datum) + "</td><td>" + e.stunden.toLocaleString("de-CH") + " Std." + notiz + "</td><td>" + loeschKnopf + "</td></tr>";
+  }
+
+  function stEigeneZeichnen(eintraege) {
+    if (!eintraege.length) {
+      elStEigeneListe.innerHTML = '<p class="leer">Noch keine Stunden in diesem Monat erfasst.</p>';
+      return;
+    }
+    var total = eintraege.reduce(function (s, e) { return s + e.stunden; }, 0);
+    elStEigeneListe.innerHTML =
+      '<div class="tabellenrahmen"><table class="auflistung"><tbody>' +
+      eintraege.map(function (e) { return stStundenZeile(e, true); }).join("") +
+      "</tbody></table></div>" +
+      '<p style="margin:10px 0 0;font-weight:700">Total: ' + total.toLocaleString("de-CH") + " Stunden</p>";
+
+    elStEigeneListe.querySelectorAll("button[data-id]").forEach(function (knopf) {
+      knopf.addEventListener("click", function () {
+        invoke("stunden_loeschen", { id: Number(knopf.dataset.id), benutzer_id: aktuellerBenutzer.id })
+          .then(stMonatLaden)
+          .catch(function (e) { alert(fehlerText(e)); });
+      });
+    });
+  }
+
+  function stAlleZeichnen(eintraege) {
+    if (!eintraege.length) {
+      elStAlleListe.innerHTML = '<p class="leer">Noch keine Stunden in diesem Monat erfasst.</p>';
+      return;
+    }
+    // Server liefert schon nach Anzeigename sortiert - pro Person eine
+    // kleine Zwischenueberschrift mit Subtotal, am Ende der Gesamttotal.
+    var html = '<div class="tabellenrahmen"><table class="auflistung"><tbody>';
+    var aktuellerName = null;
+    var subtotal = 0;
+    var gesamt = 0;
+    eintraege.forEach(function (e, i) {
+      if (e.anzeigename !== aktuellerName) {
+        if (aktuellerName !== null) {
+          html += '<tr><td colspan="2" style="text-align:right;font-weight:700">Total ' + escapeHtml(aktuellerName) + "</td><td style=\"font-weight:700\">" + subtotal.toLocaleString("de-CH") + " Std.</td></tr>";
+        }
+        aktuellerName = e.anzeigename;
+        subtotal = 0;
+        html += '<tr><td colspan="3" style="padding-top:14px;font-weight:700;color:var(--gruen-tief)">' + escapeHtml(e.anzeigename) + "</td></tr>";
+      }
+      subtotal += e.stunden;
+      gesamt += e.stunden;
+      html += stStundenZeile(e, false);
+      if (i === eintraege.length - 1) {
+        html += '<tr><td colspan="2" style="text-align:right;font-weight:700">Total ' + escapeHtml(aktuellerName) + "</td><td style=\"font-weight:700\">" + subtotal.toLocaleString("de-CH") + " Std.</td></tr>";
+      }
+    });
+    html += "</tbody></table></div>" +
+      '<p style="margin:10px 0 0;font-weight:700">Alle zusammen: ' + gesamt.toLocaleString("de-CH") + " Stunden</p>";
+    elStAlleListe.innerHTML = html;
+  }
+
+  function stMonatLaden() {
+    elStMonatTitel.textContent = MONATSNAMEN[stMonat - 1].replace(".", "") + " " + stJahr;
+    invoke("eigene_stunden", { benutzer_id: aktuellerBenutzer.id, jahr: stJahr, monat: stMonat })
+      .then(stEigeneZeichnen)
+      .catch(function (e) { elStEigeneListe.innerHTML = '<p class="leer">' + fehlerText(e) + "</p>"; });
+
+    if (!elStAlleTafel.hidden) {
+      invoke("alle_stunden", { jahr: stJahr, monat: stMonat })
+        .then(stAlleZeichnen)
+        .catch(function (e) { elStAlleListe.innerHTML = '<p class="leer">' + fehlerText(e) + "</p>"; });
+    }
+  }
+
+  document.getElementById("stVorKnopf").addEventListener("click", function () {
+    stMonat -= 1;
+    if (stMonat < 1) { stMonat = 12; stJahr -= 1; }
+    stMonatLaden();
+  });
+  document.getElementById("stNachKnopf").addEventListener("click", function () {
+    stMonat += 1;
+    if (stMonat > 12) { stMonat = 1; stJahr += 1; }
+    stMonatLaden();
+  });
+  document.getElementById("stZurueckKnopf").addEventListener("click", function () {
+    var h = new Date();
+    stJahr = h.getFullYear();
+    stMonat = h.getMonth() + 1;
+    stMonatLaden();
+  });
+
+  elStEintragenKnopf.addEventListener("click", function () {
+    elStFehler.hidden = true;
+    var datum = elStDatum.value;
+    var stunden = parseFloat(elStStunden.value);
+    var notiz = elStNotiz.value.trim();
+
+    if (!datum) {
+      elStFehler.textContent = "Bitte ein Datum wählen.";
+      elStFehler.hidden = false;
+      return;
+    }
+    if (!(stunden > 0)) {
+      elStFehler.textContent = "Bitte eine Stundenzahl grösser als 0 eingeben.";
+      elStFehler.hidden = false;
+      return;
+    }
+
+    knopfSperren(elStEintragenKnopf, true);
+    invoke("stunden_erfassen", { benutzer_id: aktuellerBenutzer.id, datum: datum, stunden: stunden, notiz: notiz })
+      .then(function () {
+        elStStunden.value = "";
+        elStNotiz.value = "";
+        elStDatum.value = datumHeute();
+        // Zur Sicherheit auf den Monat des gerade erfassten Datums springen -
+        // sonst sieht man den neuen Eintrag nicht, falls man gerade einen
+        // anderen Monat betrachtet hat.
+        var teile = datum.split("-");
+        stJahr = Number(teile[0]);
+        stMonat = Number(teile[1]);
+        stMonatLaden();
+      })
+      .catch(function (e) {
+        elStFehler.textContent = fehlerText(e);
+        elStFehler.hidden = false;
+      })
+      .finally(function () { knopfSperren(elStEintragenKnopf, false); });
+  });
+
   document.getElementById("sicherungKnopf").addEventListener("click", function () {
     var echo = document.getElementById("sicherungEcho");
     echo.textContent = "Sichere …";
@@ -932,6 +1090,7 @@
         document.getElementById(x.getAttribute("aria-controls")).hidden = !an;
       });
       if (t.id === "r-monat") monatLaden();
+      if (t.id === "r-stunden") stMonatLaden();
     });
   });
 

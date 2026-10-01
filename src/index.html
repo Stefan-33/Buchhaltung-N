@@ -120,6 +120,7 @@
       </div>
       <div class="reiter" role="tablist">
         <button role="tab" id="r-arbeit" aria-selected="true" aria-controls="t-arbeit">Arbeiten</button>
+        <button role="tab" id="r-stunden" aria-selected="false" aria-controls="t-stunden">Stunden</button>
         <button role="tab" id="r-monat" aria-selected="false" aria-controls="t-monat">Monat &amp; Jahr</button>
       </div>
       <div class="kopf-benutzer">
@@ -161,6 +162,55 @@
 
         <div class="tafel" id="kundenblatt"></div>
 
+      </div>
+    </section>
+
+    <!-- ============ STUNDEN ============ -->
+    <!-- Bewusst ein eigener Reiter, getrennt von "Arbeiten" - Stefans
+         Wunsch: das Erfassen der eigenen Stunden soll nicht mit den Kunden
+         vermischt werden. -->
+    <section id="t-stunden" role="tabpanel" aria-labelledby="r-stunden" hidden>
+      <div class="arbeit">
+
+        <div class="tafel">
+          <div class="tafel-kopf">
+            <h2>Stunden erfassen</h2>
+            <p>Tag und Anzahl Stunden eintragen - fertig</p>
+          </div>
+          <div class="abschnitt">
+            <label class="feld"><span>Datum</span><input id="st-datum" type="date"></label>
+            <label class="feld"><span>Stunden</span><input id="st-stunden" type="number" step="0.25" min="0" placeholder="z. B. 6.5"></label>
+            <label class="feld"><span>Notiz (optional)</span><input id="st-notiz" placeholder="z. B. Krank, Feiertag…"></label>
+            <p id="st-fehler" class="login-fehler" hidden></p>
+            <div class="knopfreihe">
+              <button class="knopf knopf-voll" id="stundenEintragenKnopf">Eintragen</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="tafel">
+          <div class="tafel-kopf">
+            <h2 id="stMonatTitel">Dieser Monat</h2>
+            <p>Deine eigenen Stunden</p>
+          </div>
+          <div class="abschnitt">
+            <div class="knopfreihe" style="margin-top:0">
+              <button class="knopf" id="stVorKnopf">‹ Vormonat</button>
+              <button class="knopf" id="stZurueckKnopf">Heute</button>
+              <button class="knopf" id="stNachKnopf">Nächster ›</button>
+            </div>
+          </div>
+          <div class="abschnitt" id="stEigeneListe"></div>
+        </div>
+
+      </div>
+
+      <div class="tafel" id="stAlleTafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2>Alle Mitarbeiterinnen</h2>
+          <p>Übersicht für die Abrechnung - die eigentliche Lohnberechnung passiert weiterhin in Excel</p>
+        </div>
+        <div class="abschnitt" id="stAlleListe"></div>
       </div>
     </section>
 

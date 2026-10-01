@@ -4,9 +4,10 @@
 // 1. Eine 1:1-Kopie der kompletten Datenbankdatei (.sqlite3) - falls das
 //    Programm neu installiert werden muss, spielt man diese Datei einfach
 //    zurueck und alles ist wieder da, exakt wie vorher.
-// 2. Kunden und Auftraege zusaetzlich als CSV - lesbar mit Excel/LibreOffice
-//    ganz ohne das Programm, falls mal nur schnell reingeschaut werden muss
-//    oder die Zahlen dem Steuerberater gegeben werden.
+// 2. Kunden, Auftraege und Arbeitsstunden zusaetzlich als CSV - lesbar mit
+//    Excel/LibreOffice ganz ohne das Programm, falls mal nur schnell
+//    reingeschaut werden muss, die Zahlen dem Steuerberater gegeben werden,
+//    oder die Stunden in Stefans eigenes Lohn-Excel sollen.
 //
 // Der Ordner liegt unter Dokumente\Atelierbuch Straub\Sicherung. Empfehlung
 // an Stefan (siehe Chat): diesen Ordner zusaetzlich per kostenlosem
@@ -101,6 +102,27 @@ pub fn jetzt_sichern(conn: &Connection) -> Result<PathBuf, String> {
         ));
     }
     schreiben(&ziel_ordner.join("auftraege.csv"), &auftraege_csv)?;
+
+    // 4) Arbeitsstunden aller Personen als CSV - die Rohdaten fuer Stefans
+    //    eigene Lohnabrechnung in Excel, das Programm rechnet selbst nichts aus.
+    let mut stmt = conn
+        .prepare(
+            "SELECT b.anzeigename, a.datum, a.stunden, a.notiz
+             FROM arbeitsstunden a JOIN benutzer b ON b.id = a.benutzer_id
+             ORDER BY a.datum, b.anzeigename",
+        )
+        .map_err(|e| e.to_string())?;
+    let mut stunden_csv = String::from("Name,Datum,Stunden,Notiz\n");
+    let zeilen = stmt
+        .query_map([], |z| {
+            Ok((z.get::<_, String>(0)?, z.get::<_, String>(1)?, z.get::<_, f64>(2)?, z.get::<_, String>(3)?))
+        })
+        .map_err(|e| e.to_string())?;
+    for zeile in zeilen {
+        let (name, datum, stunden, notiz) = zeile.map_err(|e| e.to_string())?;
+        stunden_csv.push_str(&format!("{},{datum},{stunden:.2},{}\n", csv_feld(&name), csv_feld(&notiz)));
+    }
+    schreiben(&ziel_ordner.join("stunden.csv"), &stunden_csv)?;
 
     alte_sicherungen_aufraeumen()?;
     Ok(ziel_ordner)

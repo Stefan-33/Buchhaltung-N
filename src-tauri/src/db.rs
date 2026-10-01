@@ -105,6 +105,23 @@ fn schema_anlegen(conn: &Connection) -> rusqlite::Result<()> {
             schluessel  TEXT PRIMARY KEY,
             wert        TEXT NOT NULL
         );
+
+        -- Arbeitsstunden pro Person - bewusst eine eigene, von Kunden und
+        -- Auftraegen komplett getrennte Tabelle (siehe Stefans Wunsch: beim
+        -- Erfassen nicht mit den Kunden vermischen). Jede Person sieht und
+        -- erfasst nur ihre eigenen Zeilen (benutzer_id), Papa/Mama sehen
+        -- zusaetzlich alle zusammen fuer die Lohnabrechnung (die passiert
+        -- weiterhin in Stefans eigenem Excel - das Programm liefert nur die
+        -- rohen Stunden, siehe stunden.csv in der Sicherung).
+        CREATE TABLE IF NOT EXISTS arbeitsstunden (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            benutzer_id     INTEGER NOT NULL REFERENCES benutzer(id),
+            datum           TEXT NOT NULL,
+            stunden         REAL NOT NULL,
+            notiz           TEXT NOT NULL DEFAULT '',
+            erstellt_am     TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_arbeitsstunden_benutzer ON arbeitsstunden(benutzer_id, datum);
         "#,
     )
 }

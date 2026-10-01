@@ -5,6 +5,7 @@
 use crate::auth::{self, Benutzer};
 use crate::geschaeft::{self, Auftrag, Kunde, NeuerAuftrag, NeuerKunde};
 use crate::sicherung;
+use crate::stunden::{self, StundenEintrag};
 use crate::AppZustand;
 use tauri::State;
 
@@ -123,4 +124,34 @@ pub fn monatsstatistik(zustand: State<AppZustand>, jahr: i32) -> Antwort<Vec<ges
 pub fn jetzt_sichern(zustand: State<AppZustand>) -> Antwort<String> {
     let conn = verbindung_sperren(&zustand);
     sicherung::jetzt_sichern(&conn).map(|p| p.display().to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn stunden_erfassen(
+    zustand: State<AppZustand>,
+    benutzer_id: i64,
+    datum: String,
+    stunden: f64,
+    notiz: String,
+) -> Antwort<StundenEintrag> {
+    let conn = verbindung_sperren(&zustand);
+    stunden::stunden_erfassen(&conn, benutzer_id, &datum, stunden, &notiz).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn eigene_stunden(zustand: State<AppZustand>, benutzer_id: i64, jahr: i32, monat: u32) -> Antwort<Vec<StundenEintrag>> {
+    let conn = verbindung_sperren(&zustand);
+    stunden::eigene_stunden(&conn, benutzer_id, jahr, monat).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn alle_stunden(zustand: State<AppZustand>, jahr: i32, monat: u32) -> Antwort<Vec<StundenEintrag>> {
+    let conn = verbindung_sperren(&zustand);
+    stunden::alle_stunden(&conn, jahr, monat).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn stunden_loeschen(zustand: State<AppZustand>, id: i64, benutzer_id: i64) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    stunden::stunden_loeschen(&conn, id, benutzer_id).map_err(|e| e.to_string())
 }
