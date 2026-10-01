@@ -55,6 +55,17 @@ pub fn ersteinrichtung_abschliessen(
     anzeigename: &str,
     passwort: &str,
 ) -> Result<Benutzer, AuthFehler> {
+    // Nochmals pruefen statt blind einzufuegen: Jeder Tauri-Befehl haelt die
+    // Datenbank-Sperre fuer seine gesamte Laufzeit (siehe verbindung_sperren
+    // in commands.rs), zwei Anfragen laufen also nie wirklich gleichzeitig,
+    // sondern strikt nacheinander. Trifft ein Doppelklick oder "Enter +
+    // Klick" das Formular zweimal, legt die erste Anfrage das Konto an -
+    // die zweite sieht hier bereits ist_ersteinrichtung() == false und
+    // meldet stattdessen einfach mit denselben Daten an, statt einen
+    // haesslichen "existiert schon"-Fehler zu zeigen.
+    if !ist_ersteinrichtung(conn)? {
+        return anmelden(conn, benutzername, passwort);
+    }
     konto_anlegen(conn, benutzername, anzeigename, passwort, "inhaber")?;
     anmelden(conn, benutzername, passwort)
 }

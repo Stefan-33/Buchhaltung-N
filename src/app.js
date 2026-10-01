@@ -40,12 +40,21 @@
     programmStarten();
   }
 
+  // Waehrend eine Anfrage laeuft, den Absenden-Knopf sperren - sonst kann
+  // ein Doppelklick oder "Enter + Klick" dasselbe Formular zweimal
+  // losschicken (genau das ist beim ersten Test passiert).
+  function formularSperren(formular, gesperrt) {
+    var knopf = formular.querySelector('button[type="submit"]');
+    if (knopf) knopf.disabled = gesperrt;
+  }
+
   elLoginFormular.addEventListener("submit", function (ev) {
     ev.preventDefault();
     elLoginFehler.hidden = true;
     var benutzername = document.getElementById("login-benutzername").value.trim();
     var passwort = document.getElementById("login-passwort").value;
 
+    formularSperren(elLoginFormular, true);
     invoke("anmelden", { benutzername: benutzername, passwort: passwort })
       .then(nachAnmeldung)
       .catch(function (e) {
@@ -53,7 +62,8 @@
         elLoginFehler.hidden = false;
         document.getElementById("login-passwort").value = "";
         document.getElementById("login-passwort").focus();
-      });
+      })
+      .finally(function () { formularSperren(elLoginFormular, false); });
   });
 
   elEinrichtungFormular.addEventListener("submit", function (ev) {
@@ -75,12 +85,14 @@
       return;
     }
 
+    formularSperren(elEinrichtungFormular, true);
     invoke("ersteinrichtung_abschliessen", { benutzername: benutzername, anzeigename: anzeigename, passwort: passwort })
       .then(nachAnmeldung)
       .catch(function (e) {
         elEinrichtungFehler.textContent = fehlerText(e);
         elEinrichtungFehler.hidden = false;
-      });
+      })
+      .finally(function () { formularSperren(elEinrichtungFormular, false); });
   });
 
   document.getElementById("abmeldenKnopf").addEventListener("click", function () {
