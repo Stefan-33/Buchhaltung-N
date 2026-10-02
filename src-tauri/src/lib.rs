@@ -1,6 +1,7 @@
 mod auth;
 mod commands;
 mod db;
+mod einstellungen;
 mod geschaeft;
 mod sicherung;
 mod stunden;
@@ -61,6 +62,8 @@ pub fn run() {
             commands::alle_stunden,
             commands::stunden_loeschen,
             commands::alle_benutzer,
+            commands::einstellungen_lesen,
+            commands::einstellungen_speichern,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

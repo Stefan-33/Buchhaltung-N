@@ -25,10 +25,39 @@
     if (schliessen) schliessen.addEventListener("click", function () { el.hidden = true; });
   })();
 
+  // Hell/Dunkel von Hand uebersteuern (Reiter "Einstellungen") - ganz am
+  // Anfang anwenden, noch vor allem anderen, damit die Seite nicht erst im
+  // falschen Farbschema aufblitzt. Reine Geraete-Einstellung, bewusst nicht
+  // in der Datenbank (siehe einstellungen.rs auf der Rust-Seite).
+  (function () {
+    var wert;
+    try { wert = localStorage.getItem("darstellung"); } catch (e) { wert = null; }
+    if (wert === "hell") document.documentElement.setAttribute("data-theme", "light");
+    else if (wert === "dunkel") document.documentElement.setAttribute("data-theme", "dark");
+  })();
+
   var invoke = window.__TAURI__.core.invoke;
 
   var fr = new Intl.NumberFormat("de-CH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function chf(n) { return fr.format(n || 0); }
+
+  // Geschaeftsangaben + Kartengebuehr-Saetze - Standardwerte decken sich
+  // bewusst mit dem, was bisher fix im Code stand, damit vor dem ersten
+  // Laden (oder falls das Laden fehlschlaegt) nichts anders aussieht.
+  // Wird direkt nach der Anmeldung mit den echten, gespeicherten Werten
+  // ueberschrieben (siehe nachAnmeldung).
+  var aktuelleEinstellungen = {
+    geschaeft_name: "Nähservice Straub",
+    geschaeft_zeile2: "Änderungen und Reparaturen · Rosmarie Straub",
+    geschaeft_adresse: "Staldenbachstrasse 13, 8808 Pfäffikon SZ",
+    geschaeft_telefon: "055 410 72 06",
+    geschaeft_web: "naehservicestraub.ch",
+    kartensatz_a: 1.5,
+    kartensatz_b: 2.5,
+  };
+  function kartensatzText(wert) {
+    return wert === null || wert === undefined || wert === "" ? "" : String(wert).replace(".", ",") + " %";
+  }
 
   function datumKurz(iso) {
     // Rust liefert Datum als "YYYY-MM-DD" - fuer die Anzeige ins
@@ -76,6 +105,10 @@
     var istMitarbeiterin = rolle === "mitarbeiterin";
     document.getElementById("r-monat").hidden = istMitarbeiterin;
     document.getElementById("stAlleTafel").hidden = istMitarbeiterin;
+    // Geschaeftsangaben und Kartengebuehr-Saetze gelten fuer den ganzen
+    // Betrieb, nicht fuer eine einzelne Person - nur Papa/Mama aendern die.
+    document.getElementById("eiGeschaeftTafel").hidden = istMitarbeiterin;
+    document.getElementById("eiKartenTafel").hidden = istMitarbeiterin;
     if (istMitarbeiterin) {
       // Falls von einem frueheren Login noch der Monat-Reiter aktiv war.
       document.getElementById("r-arbeit").click();
@@ -89,6 +122,12 @@
     bildschirmZeigen(elProgramm, true);
     document.getElementById("angemeldet-als").textContent = "Angemeldet: " + benutzer.anzeigename;
     rolleAnwenden(benutzer.rolle);
+    invoke("einstellungen_lesen")
+      .then(function (e) {
+        aktuelleEinstellungen = e;
+        einstellungenFormularFuellen();
+      })
+      .catch(function () {}); // Vorbelegte Standardwerte bleiben, Seite funktioniert trotzdem
     programmStarten();
   }
 
@@ -598,8 +637,9 @@
     return (
       '<div class="quittung" id="druckBereich">' +
       '<div class="quittung-kopf">' +
-      "<div><strong>Nähservice Straub</strong>" +
-      "<p>Änderungen und Reparaturen · Rosmarie Straub<br>Staldenbachstrasse 13, 8808 Pfäffikon SZ<br>055 410 72 06 · naehservicestraub.ch</p></div>" +
+      "<div><strong>" + escapeHtml(aktuelleEinstellungen.geschaeft_name) + "</strong>" +
+      "<p>" + escapeHtml(aktuelleEinstellungen.geschaeft_zeile2) + "<br>" + escapeHtml(aktuelleEinstellungen.geschaeft_adresse) +
+      "<br>" + escapeHtml(aktuelleEinstellungen.geschaeft_telefon) + " · " + escapeHtml(aktuelleEinstellungen.geschaeft_web) + "</p></div>" +
       '<div style="text-align:right"><strong>Quittung ' + auftrag.rechnungsnummer + "</strong>" +
       "<p>" + datumKurz(auftrag.datum) + "<br>" + escapeHtml(kunde.vorname) + " " + escapeHtml(kunde.name) + "<br>" + escapeHtml(kunde.ort) + "</p></div>" +
       "</div>" +
@@ -642,9 +682,16 @@
       })
       .join("");
 
-    var karteName = { "1.5": "1,5 %", "2.5": "2,5 %", "": "noch nie" };
     var karteKey = k.kartensatz === null || k.kartensatz === undefined ? "" : String(k.kartensatz);
     var ZAHLARTEN = ["Bar", "Twint", "Karte", "Rechnung"];
+
+    // Normalerweise genau die zwei aktuell eingestellten Saetze zur Wahl -
+    // falls der gespeicherte Satz dieser Kundin aber von frueher stammt und
+    // nicht mehr zu den aktuellen Saetzen passt (z.B. nach einer Aenderung
+    // in den Einstellungen), zusaetzlich als dritte Option zeigen statt ihn
+    // unsichtbar verschwinden zu lassen.
+    var karteOptionen = [String(aktuelleEinstellungen.kartensatz_a), String(aktuelleEinstellungen.kartensatz_b), ""];
+    if (karteKey !== "" && karteOptionen.indexOf(karteKey) === -1) karteOptionen.splice(2, 0, karteKey);
 
     elBlatt.innerHTML =
       '<div class="blatt-kopf">' +
@@ -652,9 +699,10 @@
       '<p class="kontakt"><span>' + escapeHtml(k.telefon) + "</span> · <span>" + escapeHtml(k.ort) + "</span>" +
       (k.letzter_besuch ? " · <span>zuletzt " + datumKurz(k.letzter_besuch) + "</span>" : "") + "</p>" +
       '<div class="kartenblock"><span>Kartensatz</span><div class="kartewahl" id="kartewahl">' +
-      ["1.5", "2.5", ""]
+      karteOptionen
         .map(function (satz) {
-          return '<button type="button" data-satz="' + satz + '" aria-pressed="' + (satz === karteKey) + '">' + karteName[satz] + "</button>";
+          var text = satz === "" ? "noch nie" : kartensatzText(satz);
+          return '<button type="button" data-satz="' + satz + '" aria-pressed="' + (satz === karteKey) + '">' + text + "</button>";
         })
         .join("") +
       "</div></div></div>" +
@@ -772,12 +820,11 @@
       return;
     }
     btn.textContent = "Vorschau schliessen";
-    var karteName = { "1.5": "1,5 %", "2.5": "2,5 %" };
     var zeilen = kundenCache
       .slice()
       .sort(function (a, b) { return a.nummer - b.nummer; })
       .map(function (k) {
-        var karte = k.kartensatz ? karteName[String(k.kartensatz)] : "–";
+        var karte = k.kartensatz ? kartensatzText(k.kartensatz) : "–";
         return "<tr><td>" + k.nummer + "</td><td>" + escapeHtml(k.name) + " " + escapeHtml(k.vorname) + "</td>" +
           "<td>" + escapeHtml(k.ort) + "</td><td>" + escapeHtml(k.telefon) + "</td><td>" + karte + "</td>" +
           "<td>" + chf(k.jahresumsatz) + "</td></tr>";
@@ -1245,6 +1292,157 @@
   });
   document.getElementById("mitarbeiterinFormular").querySelectorAll("input").forEach(function (f) {
     f.addEventListener("keydown", enterLoest(function () { elMaKnopf.click(); }));
+  });
+
+  // ================= EINSTELLUNGEN =================
+  function einstellungenFormularFuellen() {
+    document.getElementById("ei-geschaeft-name").value = aktuelleEinstellungen.geschaeft_name;
+    document.getElementById("ei-geschaeft-zeile2").value = aktuelleEinstellungen.geschaeft_zeile2;
+    document.getElementById("ei-geschaeft-adresse").value = aktuelleEinstellungen.geschaeft_adresse;
+    document.getElementById("ei-geschaeft-telefon").value = aktuelleEinstellungen.geschaeft_telefon;
+    document.getElementById("ei-geschaeft-web").value = aktuelleEinstellungen.geschaeft_web;
+    document.getElementById("ei-kartensatz-a").value = aktuelleEinstellungen.kartensatz_a;
+    document.getElementById("ei-kartensatz-b").value = aktuelleEinstellungen.kartensatz_b;
+  }
+
+  // --- Mein Konto: eigenes Passwort ---
+  var elEiPasswort = document.getElementById("ei-passwort");
+  var elEiPasswort2 = document.getElementById("ei-passwort2");
+  var elEiPasswortFehler = document.getElementById("ei-passwort-fehler");
+  var elEiPasswortErfolg = document.getElementById("ei-passwort-erfolg");
+  var elEiPasswortKnopf = document.getElementById("eiPasswortKnopf");
+
+  elEiPasswortKnopf.addEventListener("click", function () {
+    elEiPasswortFehler.hidden = true;
+    elEiPasswortErfolg.hidden = true;
+    var p1 = elEiPasswort.value;
+    var p2 = elEiPasswort2.value;
+    if (!p1 || !p2) {
+      elEiPasswortFehler.textContent = "Bitte beide Felder ausfüllen.";
+      elEiPasswortFehler.hidden = false;
+      return;
+    }
+    if (p1 !== p2) {
+      elEiPasswortFehler.textContent = "Die beiden Passwörter stimmen nicht überein.";
+      elEiPasswortFehler.hidden = false;
+      return;
+    }
+    if (p1.length < 6) {
+      elEiPasswortFehler.textContent = "Mindestens 6 Zeichen.";
+      elEiPasswortFehler.hidden = false;
+      return;
+    }
+    knopfSperren(elEiPasswortKnopf, true);
+    invoke("passwort_aendern", { benutzer_id: aktuellerBenutzer.id, neues_passwort: p1 })
+      .then(function () {
+        elEiPasswortErfolg.textContent = "Passwort geändert.";
+        elEiPasswortErfolg.hidden = false;
+        elEiPasswort.value = "";
+        elEiPasswort2.value = "";
+      })
+      .catch(function (e) {
+        elEiPasswortFehler.textContent = fehlerText(e);
+        elEiPasswortFehler.hidden = false;
+      })
+      .finally(function () { knopfSperren(elEiPasswortKnopf, false); });
+  });
+
+  // --- Darstellung: Hell/Dunkel/Automatisch ---
+  var elEiDarstellung = document.getElementById("eiDarstellung");
+  function darstellungAnwenden(wert) {
+    if (wert === "hell") document.documentElement.setAttribute("data-theme", "light");
+    else if (wert === "dunkel") document.documentElement.setAttribute("data-theme", "dark");
+    else document.documentElement.removeAttribute("data-theme");
+    elEiDarstellung.querySelectorAll("button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.wert === wert));
+    });
+  }
+  (function () {
+    var gespeichert;
+    try { gespeichert = localStorage.getItem("darstellung"); } catch (e) { gespeichert = null; }
+    darstellungAnwenden(gespeichert || "automatisch");
+  })();
+  elEiDarstellung.querySelectorAll("button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var wert = b.dataset.wert;
+      try { localStorage.setItem("darstellung", wert); } catch (e) {}
+      darstellungAnwenden(wert);
+    });
+  });
+
+  // --- Geschäftsangaben (nur Papa/Mama sichtbar, siehe rolleAnwenden) ---
+  document.getElementById("eiGeschaeftKnopf").addEventListener("click", function () {
+    var elFehler = document.getElementById("ei-geschaeft-fehler");
+    var elErfolg = document.getElementById("ei-geschaeft-erfolg");
+    elFehler.hidden = true;
+    elErfolg.hidden = true;
+    var name = document.getElementById("ei-geschaeft-name").value.trim();
+    if (!name) {
+      elFehler.textContent = "Der Name darf nicht leer sein.";
+      elFehler.hidden = false;
+      return;
+    }
+    var neu = Object.assign({}, aktuelleEinstellungen, {
+      geschaeft_name: name,
+      geschaeft_zeile2: document.getElementById("ei-geschaeft-zeile2").value.trim(),
+      geschaeft_adresse: document.getElementById("ei-geschaeft-adresse").value.trim(),
+      geschaeft_telefon: document.getElementById("ei-geschaeft-telefon").value.trim(),
+      geschaeft_web: document.getElementById("ei-geschaeft-web").value.trim(),
+    });
+    var knopf = document.getElementById("eiGeschaeftKnopf");
+    knopfSperren(knopf, true);
+    invoke("einstellungen_speichern", { eingabe: neu })
+      .then(function () {
+        aktuelleEinstellungen = neu;
+        elErfolg.textContent = "Gespeichert.";
+        elErfolg.hidden = false;
+      })
+      .catch(function (e) { elFehler.textContent = fehlerText(e); elFehler.hidden = false; })
+      .finally(function () { knopfSperren(knopf, false); });
+  });
+
+  // --- Kartengebühr-Sätze (nur Papa/Mama sichtbar) ---
+  document.getElementById("eiKartenKnopf").addEventListener("click", function () {
+    var elFehler = document.getElementById("ei-karten-fehler");
+    var elErfolg = document.getElementById("ei-karten-erfolg");
+    elFehler.hidden = true;
+    elErfolg.hidden = true;
+    var a = parseFloat(document.getElementById("ei-kartensatz-a").value);
+    var b = parseFloat(document.getElementById("ei-kartensatz-b").value);
+    if (!(a >= 0 && a <= 100) || !(b >= 0 && b <= 100)) {
+      elFehler.textContent = "Bitte beide Sätze zwischen 0 und 100 eingeben.";
+      elFehler.hidden = false;
+      return;
+    }
+    var neu = Object.assign({}, aktuelleEinstellungen, { kartensatz_a: a, kartensatz_b: b });
+    var knopf = document.getElementById("eiKartenKnopf");
+    knopfSperren(knopf, true);
+    invoke("einstellungen_speichern", { eingabe: neu })
+      .then(function () {
+        aktuelleEinstellungen = neu;
+        elErfolg.textContent = "Gespeichert.";
+        elErfolg.hidden = false;
+      })
+      .catch(function (e) { elFehler.textContent = fehlerText(e); elFehler.hidden = false; })
+      .finally(function () { knopfSperren(knopf, false); });
+  });
+
+  // --- Import & Export: alles an einem Ort ---
+  // Oeffnet dieselben Dialoge wie die Knoepfe auf den anderen Reitern -
+  // keine zweite Kopie der Erfassungs-/Import-Logik noetig.
+  document.getElementById("eiKundenImportKnopf").addEventListener("click", function () {
+    document.getElementById("kundenImportKnopf").click();
+  });
+  document.getElementById("eiStundenImportKnopf").addEventListener("click", function () {
+    document.getElementById("stundenImportKnopf").click();
+  });
+  document.getElementById("eiSicherungKnopf").addEventListener("click", function () {
+    var echo = document.getElementById("eiSicherungEcho");
+    echo.style.color = "var(--gruen)";
+    echo.textContent = "Sichere …";
+    invoke("jetzt_sichern")
+      .then(function (pfad) { echo.textContent = "Gesichert nach: " + pfad; })
+      .catch(function (e) { echo.textContent = fehlerText(e); echo.style.color = "var(--faden)"; });
   });
 
   // ================= REITER =================

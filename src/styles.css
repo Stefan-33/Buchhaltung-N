@@ -28,6 +28,15 @@
     --schatten:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
   }
 }
+/* Von Hand auf Dunkel gestellt (Reiter "Einstellungen") - unabhaengig
+   davon, was Windows gerade einstellt hat. */
+:root[data-theme="dark"]{
+  --grund:#15170f; --blatt:#1d2019; --blatt-2:#272b22; --tinte:#eceadf;
+  --tinte-2:#a5a996; --tinte-3:#7c8070; --linie:#343829; --linie-stark:#474c39;
+  --gruen:#45c563; --gruen-tief:#8ddba0; --gruen-matt:#1d3322;
+  --faden:#e6906a; --faden-matt:#3a2a20;
+  --schatten:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+}
 
 *{box-sizing:border-box;}
 body{

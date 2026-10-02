@@ -3,6 +3,7 @@
 // Frontend per invoke("funktionsname", { ... }) aufrufen.
 
 use crate::auth::{self, Benutzer};
+use crate::einstellungen::{self, Einstellungen};
 use crate::geschaeft::{self, Auftrag, Kunde, NeuerAuftrag, NeuerKunde};
 use crate::sicherung;
 use crate::stunden::{self, StundenEintrag};
@@ -152,6 +153,18 @@ pub fn eigene_stunden(zustand: State<AppZustand>, benutzer_id: i64, jahr: i32, m
 pub fn alle_benutzer(zustand: State<AppZustand>) -> Antwort<Vec<Benutzer>> {
     let conn = verbindung_sperren(&zustand);
     auth::alle_benutzer(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn einstellungen_lesen(zustand: State<AppZustand>) -> Antwort<Einstellungen> {
+    let conn = verbindung_sperren(&zustand);
+    einstellungen::einstellungen_lesen(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn einstellungen_speichern(zustand: State<AppZustand>, eingabe: Einstellungen) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    einstellungen::einstellungen_speichern(&conn, &eingabe).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
