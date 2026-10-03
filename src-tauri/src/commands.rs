@@ -120,6 +120,12 @@ pub fn kunde_aktualisieren(zustand: State<AppZustand>, kunde_id: i64, eingabe: K
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub fn kunde_loeschen(zustand: State<AppZustand>, kunde_id: i64) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    geschaeft::kunde_loeschen(&conn, kunde_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn auftraege_von_kunde(zustand: State<AppZustand>, kunde_id: i64) -> Antwort<Vec<Auftrag>> {
     let conn = verbindung_sperren(&zustand);
     geschaeft::auftraege_von_kunde(&conn, kunde_id).map_err(|e| e.to_string())

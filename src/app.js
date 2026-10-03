@@ -820,7 +820,14 @@
     elBlatt.innerHTML =
       '<div class="blatt-kopf">' +
       "<div><h2>" + escapeHtml(k.vorname) + " " + escapeHtml(k.name) + ' <span class="kundennr">Nr. ' + k.nummer + "</span> " +
-      '<button type="button" class="knopf" id="kundeBearbeitenKnopf" style="font-size:12px;padding:3px 10px">Bearbeiten</button></h2>' +
+      '<button type="button" class="knopf" id="kundeBearbeitenKnopf" style="font-size:12px;padding:3px 10px">Bearbeiten</button>' +
+      // Loeschen nur anbieten, wenn es ueberhaupt moeglich ist (kein
+      // Auftrag vorhanden) - sonst lehnt es das Programm sowieso ab (siehe
+      // kunde_loeschen in geschaeft.rs), damit kein Umsatz verschwindet.
+      (k.anzahl_auftraege === 0
+        ? ' <button type="button" class="knopf" id="kundeLoeschenKnopf" style="font-size:12px;padding:3px 10px;color:var(--faden)">Löschen</button>'
+        : "") +
+      "</h2>" +
       '<p class="kontakt"><span>' + escapeHtml(k.telefon) + "</span> · <span>" + escapeHtml(k.ort) + "</span>" +
       (k.letzter_besuch ? " · <span>zuletzt " + datumKurz(k.letzter_besuch) + "</span>" : "") + "</p>" +
       '<div class="kartenblock"><span>Kartensatz</span><div class="kartewahl" id="kartewahl">' +
@@ -864,6 +871,22 @@
   function verdrahten() {
     var bearbeitenKnopf = elBlatt.querySelector("#kundeBearbeitenKnopf");
     if (bearbeitenKnopf) bearbeitenKnopf.addEventListener("click", function () { kundeBearbeitenOeffnen(aktuellerKunde); });
+
+    var loeschenKnopf = elBlatt.querySelector("#kundeLoeschenKnopf");
+    if (loeschenKnopf) {
+      loeschenKnopf.addEventListener("click", function () {
+        var k = aktuellerKunde;
+        if (!confirm("Kunde „" + k.vorname + " " + k.name + "“ (Nr. " + k.nummer + ") wirklich endgültig löschen?")) return;
+        invoke("kunde_loeschen", { kunde_id: k.id })
+          .then(function () {
+            gewaehlteId = null;
+            elSuche.value = "";
+            suchtextSuchen();
+            elBlatt.innerHTML = '<p class="leer" style="padding:40px">Links einen Kunden wählen oder „+ Neuer Kunde".</p>';
+          })
+          .catch(function (e) { alert(fehlerText(e)); });
+      });
+    }
 
     elBlatt.querySelectorAll(".posten input").forEach(function (inp) {
       inp.addEventListener("input", function () {

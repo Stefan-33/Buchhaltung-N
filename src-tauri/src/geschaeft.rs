@@ -15,6 +15,8 @@ pub enum GeschaeftFehler {
     KundeNichtGefunden,
     #[error("Ein Auftrag braucht mindestens eine Position")]
     KeinePosten,
+    #[error("Dieser Kunde hat bereits Aufträge und kann darum nicht gelöscht werden - ohne neuen Besuch wird er automatisch archiviert")]
+    KundeHatAuftraege,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -269,6 +271,26 @@ pub fn kunde_aktualisieren(conn: &Connection, kunde_id: i64, eingabe: KundeBearb
     kunde_holen(conn, kunde_id)
 }
 
+/// Loescht einen Kunden endgueltig - aber nur, wenn er noch keine
+/// Auftraege hat (die Fremdschluessel-Vorgabe in db.rs verhindert das
+/// sonst ohnehin, hier nur mit einer verstaendlichen Meldung statt der
+/// rohen SQLite-Fehlermeldung). Gedacht fuer Karteileichen, z.B. ein aus
+/// Versehen zweimal angelegter oder beim Telefonlisten-Import falsch
+/// erkannter Kunde - sobald wirklich ein Auftrag dabei ist, kommt
+/// stattdessen die automatische Archivierung (archiv_aktualisieren) zum
+/// Zug, damit die Buchhaltung lueckenlos bleibt.
+pub fn kunde_loeschen(conn: &Connection, kunde_id: i64) -> Result<(), GeschaeftFehler> {
+    let betroffen = conn.execute("DELETE FROM kunden WHERE id = ?1", [kunde_id]);
+    match betroffen {
+        Ok(0) => Err(GeschaeftFehler::KundeNichtGefunden),
+        Ok(_) => Ok(()),
+        Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == ErrorCode::ConstraintViolation => {
+            Err(GeschaeftFehler::KundeHatAuftraege)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Ein Jahr ohne Besuch -> automatisch archiviert. Wird beim Programmstart
 /// und nach jedem neuen Auftrag aufgerufen, statt dass jemand das von Hand
 /// pflegen muesste.
@@ -437,6 +459,43 @@ mod tests {
         assert_eq!(aktualisiert.ort, "Pfäffikon");
         assert_eq!(aktualisiert.nummer, angelegt.nummer, "Kundennummer bleibt unveraendert");
         assert_eq!(aktualisiert.notiz, "Privat: 044 123 45 67", "Notiz darf beim Bearbeiten nicht verloren gehen");
+    }
+
+    // Stefans Wunsch nach dem Telefonlisten-Import: eine Karteileiche (z.B.
+    // versehentlich doppelt angelegt) soll sich wieder loeschen lassen.
+    #[test]
+    fn kunde_ohne_auftraege_laesst_sich_loeschen() {
+        let conn = test_db();
+        let angelegt = kunde_anlegen(&conn, neuer_kunde("Testweise", "")).unwrap();
+
+        kunde_loeschen(&conn, angelegt.id).unwrap();
+
+        assert!(matches!(kunde_holen(&conn, angelegt.id), Err(GeschaeftFehler::KundeNichtGefunden)));
+    }
+
+    // Ein Kunde mit echten Auftraegen darf nicht einfach verschwinden -
+    // das waere ein Loch in der Buchhaltung. Stattdessen die bestehende
+    // automatische Archivierung nutzen.
+    #[test]
+    fn kunde_mit_auftraegen_kann_nicht_geloescht_werden() {
+        let mut conn = test_db();
+        let angelegt = kunde_anlegen(&conn, neuer_kunde("Kundin", "Mit Auftrag")).unwrap();
+        auftrag_anlegen(
+            &mut conn,
+            NeuerAuftrag { kunde_id: angelegt.id, zahlart: "Bar".into(), posten: vec![Posten { bezeichnung: "Kürzen".into(), stueck: 1.0, preis: 20.0 }] },
+        )
+        .unwrap();
+
+        let ergebnis = kunde_loeschen(&conn, angelegt.id);
+        assert!(matches!(ergebnis, Err(GeschaeftFehler::KundeHatAuftraege)));
+        // Kunde muss unangetastet weiterbestehen.
+        assert!(kunde_holen(&conn, angelegt.id).is_ok());
+    }
+
+    #[test]
+    fn nicht_vorhandenen_kunden_loeschen_gibt_klare_meldung() {
+        let conn = test_db();
+        assert!(matches!(kunde_loeschen(&conn, 99999), Err(GeschaeftFehler::KundeNichtGefunden)));
     }
 
     // Genau der Fall aus Stefans Anfrage: eine aus Excel/LibreOffice
