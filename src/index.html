@@ -465,7 +465,7 @@
 <!-- ============ NEUER KUNDE (Dialog) ============ -->
 <dialog id="neuerKundeDialog" class="dialog">
   <form id="neuerKundeFormular" method="dialog" class="dialog-karte">
-    <h2>Neuer Kunde</h2>
+    <h2 id="nk-titel">Neuer Kunde</h2>
     <label class="feld"><span>Name*</span><input id="nk-name" required></label>
     <label class="feld"><span>Vorname</span><input id="nk-vorname"></label>
     <label class="feld"><span>Telefon</span><input id="nk-telefon"></label>
@@ -474,7 +474,7 @@
     <label class="feld"><span>E-Mail</span><input id="nk-email" type="email"></label>
     <div class="knopfreihe" style="justify-content:flex-end">
       <button type="button" class="knopf" id="nk-abbrechen">Abbrechen</button>
-      <button type="submit" class="knopf knopf-voll">Anlegen</button>
+      <button type="submit" class="knopf knopf-voll" id="nk-speichern">Anlegen</button>
     </div>
   </form>
 </dialog>

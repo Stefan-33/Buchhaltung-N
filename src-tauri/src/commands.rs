@@ -4,7 +4,7 @@
 
 use crate::auth::{self, Benutzer, NeueMitarbeiterin};
 use crate::einstellungen::{self, Einstellungen};
-use crate::geschaeft::{self, Auftrag, Kunde, NeuerAuftrag, NeuerKunde};
+use crate::geschaeft::{self, Auftrag, KundeBearbeiten, Kunde, NeuerAuftrag, NeuerKunde};
 use crate::sicherung;
 use crate::stunden::{self, StundenEintrag};
 use crate::treuhand::{self, Ausgabe, NeueAusgabe};
@@ -111,6 +111,12 @@ pub fn kunde_holen(zustand: State<AppZustand>, id: i64) -> Antwort<Kunde> {
 pub fn kartensatz_setzen(zustand: State<AppZustand>, kunde_id: i64, kartensatz: Option<f64>) -> Antwort<()> {
     let conn = verbindung_sperren(&zustand);
     geschaeft::kartensatz_setzen(&conn, kunde_id, kartensatz).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn kunde_aktualisieren(zustand: State<AppZustand>, kunde_id: i64, eingabe: KundeBearbeiten) -> Antwort<Kunde> {
+    let conn = verbindung_sperren(&zustand);
+    geschaeft::kunde_aktualisieren(&conn, kunde_id, eingabe).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]

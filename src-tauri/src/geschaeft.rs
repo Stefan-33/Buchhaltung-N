@@ -53,6 +53,21 @@ pub struct NeuerKunde {
     pub notiz: String,
 }
 
+/// Eingabe fuer "Kunde bearbeiten" - bewusst ohne "nummer" (bleibt fix,
+/// einmal vergeben) und ohne "notiz" (hat hier kein eigenes Feld in der
+/// Oberflaeche - wuerde sonst beim Speichern versehentlich geleert, z.B.
+/// bei einem per Datei importierten Kunden mit Zusatz-Telefonnummer in
+/// der Notiz).
+#[derive(Debug, Deserialize)]
+pub struct KundeBearbeiten {
+    pub name: String,
+    pub vorname: String,
+    pub telefon: String,
+    pub ort: String,
+    pub adresse: String,
+    pub email: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Posten {
     pub bezeichnung: String,
@@ -235,6 +250,25 @@ pub fn kartensatz_setzen(conn: &Connection, kunde_id: i64, kartensatz: Option<f6
     Ok(())
 }
 
+/// Stammdaten eines bestehenden Kunden korrigieren - z.B. wenn beim
+/// Datei-Import (siehe kunden_importieren) im Vorname-Feld statt eines
+/// echten Vornamens "Herr"/"Frau" aus der Ursprungs-Excel gelandet ist.
+pub fn kunde_aktualisieren(conn: &Connection, kunde_id: i64, eingabe: KundeBearbeiten) -> Result<Kunde, GeschaeftFehler> {
+    conn.execute(
+        "UPDATE kunden SET name = ?1, vorname = ?2, telefon = ?3, ort = ?4, adresse = ?5, email = ?6 WHERE id = ?7",
+        params![
+            eingabe.name.trim(),
+            eingabe.vorname.trim(),
+            eingabe.telefon.trim(),
+            eingabe.ort.trim(),
+            eingabe.adresse.trim(),
+            eingabe.email.trim(),
+            kunde_id,
+        ],
+    )?;
+    kunde_holen(conn, kunde_id)
+}
+
 /// Ein Jahr ohne Besuch -> automatisch archiviert. Wird beim Programmstart
 /// und nach jedem neuen Auftrag aufgerufen, statt dass jemand das von Hand
 /// pflegen muesste.
@@ -371,6 +405,38 @@ mod tests {
             email: "".into(),
             notiz: "".into(),
         }
+    }
+
+    // Stefans Anfrage nach dem Telefonlisten-Import: ein Vorname-Feld wie
+    // "Herr"/"Frau" (so stand es in seiner Original-Excel) muss sich im
+    // Nachhinein korrigieren lassen - und darf dabei die per Import gesetzte
+    // Notiz (hier: eine zweite Telefonnummer) nicht versehentlich leeren,
+    // weil der Bearbeiten-Dialog dafuer kein eigenes Feld hat.
+    #[test]
+    fn kunde_aktualisieren_aendert_stammdaten_ohne_notiz_zu_loeschen() {
+        let conn = test_db();
+        let mut eingabe = neuer_kunde("Muster", "Herr");
+        eingabe.notiz = "Privat: 044 123 45 67".into();
+        let angelegt = kunde_anlegen(&conn, eingabe).unwrap();
+
+        let aktualisiert = kunde_aktualisieren(
+            &conn,
+            angelegt.id,
+            KundeBearbeiten {
+                name: "Muster".into(),
+                vorname: "Hans".into(),
+                telefon: angelegt.telefon.clone(),
+                ort: "Pfäffikon".into(),
+                adresse: angelegt.adresse.clone(),
+                email: angelegt.email.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(aktualisiert.vorname, "Hans");
+        assert_eq!(aktualisiert.ort, "Pfäffikon");
+        assert_eq!(aktualisiert.nummer, angelegt.nummer, "Kundennummer bleibt unveraendert");
+        assert_eq!(aktualisiert.notiz, "Privat: 044 123 45 67", "Notiz darf beim Bearbeiten nicht verloren gehen");
     }
 
     // Genau der Fall aus Stefans Anfrage: eine aus Excel/LibreOffice

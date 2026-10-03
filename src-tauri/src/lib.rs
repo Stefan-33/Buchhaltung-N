@@ -55,6 +55,7 @@ pub fn run() {
             commands::kunden_importieren,
             commands::kunde_holen,
             commands::kartensatz_setzen,
+            commands::kunde_aktualisieren,
             commands::auftraege_von_kunde,
             commands::auftrag_anlegen,
             commands::monatsstatistik,

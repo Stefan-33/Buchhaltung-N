@@ -343,13 +343,38 @@
     };
   }
 
-  // ================= NEUER KUNDE =================
+  // ================= NEUER KUNDE / KUNDE BEARBEITEN =================
+  // Derselbe Dialog fuer beides - "nkBearbeitenId" entscheidet, ob beim
+  // Speichern ein neuer Kunde angelegt oder der bestehende aktualisiert
+  // wird (siehe kundeBearbeitenOeffnen, von "Bearbeiten" im Kundenblatt
+  // aufgerufen - z.B. um ein "Herr"/"Frau" aus dem Telefonlisten-Import
+  // im Vorname-Feld zu korrigieren).
   var elDialog = document.getElementById("neuerKundeDialog");
+  var nkBearbeitenId = null;
+
   document.getElementById("neuerKundeKnopf").addEventListener("click", function () {
+    nkBearbeitenId = null;
     document.getElementById("neuerKundeFormular").reset();
+    document.getElementById("nk-titel").textContent = "Neuer Kunde";
+    document.getElementById("nk-speichern").textContent = "Anlegen";
     elDialog.showModal();
     document.getElementById("nk-name").focus();
   });
+
+  function kundeBearbeitenOeffnen(k) {
+    nkBearbeitenId = k.id;
+    document.getElementById("nk-titel").textContent = "Kunde bearbeiten";
+    document.getElementById("nk-speichern").textContent = "Speichern";
+    document.getElementById("nk-name").value = k.name;
+    document.getElementById("nk-vorname").value = k.vorname;
+    document.getElementById("nk-telefon").value = k.telefon;
+    document.getElementById("nk-ort").value = k.ort;
+    document.getElementById("nk-adresse").value = k.adresse;
+    document.getElementById("nk-email").value = k.email;
+    elDialog.showModal();
+    document.getElementById("nk-name").focus();
+  }
+
   document.getElementById("nk-abbrechen").addEventListener("click", function () { elDialog.close(); });
 
   document.getElementById("neuerKundeFormular").addEventListener("submit", function (ev) {
@@ -363,7 +388,12 @@
       email: document.getElementById("nk-email").value.trim(),
     };
     if (!eingabe.name) return;
-    invoke("kunde_anlegen", { eingabe: eingabe })
+
+    var aufruf = nkBearbeitenId
+      ? invoke("kunde_aktualisieren", { kunde_id: nkBearbeitenId, eingabe: eingabe })
+      : invoke("kunde_anlegen", { eingabe: eingabe });
+
+    aufruf
       .then(function (kunde) {
         elDialog.close();
         gewaehlteId = kunde.id;
@@ -789,7 +819,8 @@
 
     elBlatt.innerHTML =
       '<div class="blatt-kopf">' +
-      "<div><h2>" + escapeHtml(k.vorname) + " " + escapeHtml(k.name) + ' <span class="kundennr">Nr. ' + k.nummer + "</span></h2>" +
+      "<div><h2>" + escapeHtml(k.vorname) + " " + escapeHtml(k.name) + ' <span class="kundennr">Nr. ' + k.nummer + "</span> " +
+      '<button type="button" class="knopf" id="kundeBearbeitenKnopf" style="font-size:12px;padding:3px 10px">Bearbeiten</button></h2>' +
       '<p class="kontakt"><span>' + escapeHtml(k.telefon) + "</span> · <span>" + escapeHtml(k.ort) + "</span>" +
       (k.letzter_besuch ? " · <span>zuletzt " + datumKurz(k.letzter_besuch) + "</span>" : "") + "</p>" +
       '<div class="kartenblock"><span>Kartensatz</span><div class="kartewahl" id="kartewahl">' +
@@ -831,6 +862,9 @@
   }
 
   function verdrahten() {
+    var bearbeitenKnopf = elBlatt.querySelector("#kundeBearbeitenKnopf");
+    if (bearbeitenKnopf) bearbeitenKnopf.addEventListener("click", function () { kundeBearbeitenOeffnen(aktuellerKunde); });
+
     elBlatt.querySelectorAll(".posten input").forEach(function (inp) {
       inp.addEventListener("input", function () {
         var i = +inp.dataset.i, f = inp.dataset.f;
