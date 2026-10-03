@@ -171,55 +171,51 @@
          Wunsch: das Erfassen der eigenen Stunden soll nicht mit den Kunden
          vermischt werden. -->
     <section id="t-stunden" role="tabpanel" aria-labelledby="r-stunden" hidden>
-      <div class="arbeit">
-
-        <div class="tafel">
-          <div class="tafel-kopf">
-            <h2>Stunden erfassen</h2>
-            <p>Vormittag und/oder Nachmittag - wie gewohnt, Stunden werden automatisch berechnet</p>
-          </div>
-          <div class="abschnitt">
-            <label class="feld"><span>Datum</span><input id="st-datum" type="date"></label>
-            <div class="zeitbloecke">
-              <div>
-                <span class="zeitblock-titel">Vormittag</span>
-                <div class="zeitblock-paar">
-                  <label class="feld" style="margin-top:0"><span>Beginn</span><input id="st-vm-beginn" type="time"></label>
-                  <label class="feld" style="margin-top:0"><span>Ende</span><input id="st-vm-ende" type="time"></label>
-                </div>
-              </div>
-              <div>
-                <span class="zeitblock-titel">Nachmittag</span>
-                <div class="zeitblock-paar">
-                  <label class="feld" style="margin-top:0"><span>Beginn</span><input id="st-nm-beginn" type="time"></label>
-                  <label class="feld" style="margin-top:0"><span>Ende</span><input id="st-nm-ende" type="time"></label>
-                </div>
+      <div class="tafel">
+        <div class="tafel-kopf">
+          <h2>Stunden erfassen</h2>
+          <p>Vormittag und/oder Nachmittag - wie gewohnt, Stunden werden automatisch berechnet</p>
+        </div>
+        <div class="abschnitt">
+          <div class="zeit-erfassen-zeile">
+            <label class="feld" style="margin-top:0"><span>Datum</span><input id="st-datum" type="date"></label>
+            <div class="zeitblock">
+              <span class="zeitblock-titel">Vormittag</span>
+              <div class="zeitblock-paar">
+                <label class="feld" style="margin-top:0"><span>Beginn</span><input id="st-vm-beginn" type="time"></label>
+                <label class="feld" style="margin-top:0"><span>Ende</span><input id="st-vm-ende" type="time"></label>
               </div>
             </div>
-            <label class="feld"><span>Notiz (optional)</span><input id="st-notiz" placeholder="z. B. Krank, Feiertag…"></label>
-            <p id="st-fehler" class="login-fehler" hidden></p>
-            <div class="knopfreihe">
-              <button class="knopf knopf-voll" id="stundenEintragenKnopf">Eintragen</button>
-              <button class="knopf" id="stundenImportKnopf">Stunden importieren</button>
+            <div class="zeitblock">
+              <span class="zeitblock-titel">Nachmittag</span>
+              <div class="zeitblock-paar">
+                <label class="feld" style="margin-top:0"><span>Beginn</span><input id="st-nm-beginn" type="time"></label>
+                <label class="feld" style="margin-top:0"><span>Ende</span><input id="st-nm-ende" type="time"></label>
+              </div>
             </div>
+            <label class="feld zeit-notiz" style="margin-top:0"><span>Notiz (optional)</span><input id="st-notiz" placeholder="z. B. Krank, Feiertag…"></label>
+          </div>
+          <p id="st-fehler" class="login-fehler" hidden></p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="stundenEintragenKnopf">Eintragen</button>
+            <button class="knopf" id="stundenImportKnopf">Stunden importieren</button>
           </div>
         </div>
+      </div>
 
-        <div class="tafel">
-          <div class="tafel-kopf">
-            <h2 id="stMonatTitel">Dieser Monat</h2>
-            <p>Deine eigenen Stunden</p>
-          </div>
-          <div class="abschnitt">
-            <div class="knopfreihe" style="margin-top:0">
-              <button class="knopf" id="stVorKnopf">‹ Vormonat</button>
-              <button class="knopf" id="stZurueckKnopf">Heute</button>
-              <button class="knopf" id="stNachKnopf">Nächster ›</button>
-            </div>
-          </div>
-          <div class="abschnitt" id="stEigeneListe"></div>
+      <div class="tafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2 id="stMonatTitel">Dieser Monat</h2>
+          <p>Deine eigenen Stunden</p>
         </div>
-
+        <div class="abschnitt">
+          <div class="knopfreihe" style="margin-top:0">
+            <button class="knopf" id="stVorKnopf">‹ Vormonat</button>
+            <button class="knopf" id="stZurueckKnopf">Heute</button>
+            <button class="knopf" id="stNachKnopf">Nächster ›</button>
+          </div>
+        </div>
+        <div class="abschnitt" id="stEigeneListe"></div>
       </div>
 
       <div class="tafel" id="stAlleTafel" style="margin-top:20px">

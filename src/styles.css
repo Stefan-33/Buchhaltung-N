@@ -262,10 +262,17 @@ input{font:inherit;color:inherit;}
 .feld select:focus{outline:2px solid var(--gruen);outline-offset:1px;border-color:var(--gruen);}
 
 /* ---------- Stunden ---------- */
-.zeitbloecke{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;}
+/* Flex statt Grid, mit fixer Breite pro Feld: wo wenig Platz ist, rutschen
+   die Bloecke einfach in die naechste Zeile (statt wie zuvor am Rand der
+   Karte abgeschnitten zu werden), wo viel Platz ist (grosses/maximiertes
+   Fenster), breitet sich die Notiz zusaetzlich aus. Der Reiter "Stunden"
+   nutzt deshalb bewusst keine der schmalen 340px-Spalten wie "Arbeiten". */
+.zeit-erfassen-zeile{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;margin-top:4px;}
+.zeit-erfassen-zeile > .feld{width:160px;}
+.zeit-erfassen-zeile > .feld.zeit-notiz{width:auto;flex:1 1 240px;}
 .zeitblock-titel{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--tinte-3);margin-bottom:7px;}
-.zeitblock-paar{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-@media (max-width:560px){.zeitbloecke{grid-template-columns:1fr;}}
+.zeitblock-paar{display:flex;gap:8px;}
+.zeitblock-paar .feld{width:124px;}
 
 /* ---------- Drucken: nur die Quittung, sonst nichts ---------- */
 @media print{
