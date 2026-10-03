@@ -276,11 +276,11 @@
         </div>
 
         <div class="abschnitt">
-          <h3>Mitarbeiterinnen-Zugang</h3>
+          <h3>Mitarbeiterin anlegen</h3>
           <p style="margin-top:0;font-size:14px;color:var(--tinte-2);max-width:60ch;">
-            Legt ein eigenes Login an, mit dem sich eine Mitarbeiterin selbst anmelden kann —
-            sie sieht dann nur „Arbeiten" (Kunden suchen/anlegen/importieren, Aufträge buchen),
-            nicht diesen Reiter hier mit Umsatz und Sicherung.
+            Legt ein Lohnprofil an (für die Treuhand-Lohnabrechnung, Reiter „Treuhand") — kein
+            Login, kein Zugang zum Programm. Ihre Stunden trägst du selbst ein (über „Für wen?"
+            bei Stunden erfassen/importieren).
           </p>
           <div class="knopfreihe">
             <button class="knopf knopf-voll" id="mitarbeiterinAnlegenKnopf">+ Mitarbeiterin anlegen</button>
@@ -543,18 +543,10 @@
     <label class="feld"><span>PLZ, Wohnort</span><input id="ma-plz-ort"></label>
     <label class="feld"><span>AHV-Nummer</span><input id="ma-ahv-nummer" placeholder="756.XXXX.XXXX.XX"></label>
     <label class="feld"><span>Stundenlohn (CHF, für die Lohnabrechnung)</span><input id="ma-stundenlohn" type="number" step="0.01" min="0"></label>
-    <label class="schalter" style="margin-top:10px">
-      <input type="checkbox" id="ma-login-aktiv"> Soll sich selbst im Programm anmelden können
-    </label>
-    <p class="login-hinweis" id="ma-login-hinweis">
-      Ohne eigenen Login: du trägst ihre Stunden selbst ein (über „Für wen?“ bei
+    <p class="login-hinweis">
+      Kein eigener Login - du trägst ihre Stunden selbst ein (über „Für wen?“ bei
       Stunden erfassen/importieren), sie braucht das Programm nie zu öffnen.
     </p>
-    <div id="ma-login-felder" hidden>
-      <label class="feld"><span>Benutzername (zum Anmelden)</span><input id="ma-benutzername" autocomplete="off"></label>
-      <label class="feld"><span>Passwort (mind. 6 Zeichen)</span><input id="ma-passwort" type="password" autocomplete="new-password"></label>
-      <label class="feld"><span>Passwort wiederholen</span><input id="ma-passwort2" type="password" autocomplete="new-password"></label>
-    </div>
     <p id="ma-fehler" class="login-fehler" hidden></p>
     <p id="ma-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
     <div class="knopfreihe" style="justify-content:flex-end">

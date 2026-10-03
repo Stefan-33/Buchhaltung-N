@@ -62,11 +62,9 @@ pub fn zweites_konto_anlegen(
 #[tauri::command(rename_all = "snake_case")]
 pub fn mitarbeiterin_anlegen(zustand: State<AppZustand>, eingabe: NeueMitarbeiterin) -> Antwort<Benutzer> {
     let conn = verbindung_sperren(&zustand);
-    // Eigene Rolle "mitarbeiterin": loest in der Oberflaeche die
-    // eingeschraenkte Ansicht aus (siehe rolleAnwenden() in app.js) -
-    // kein Zugriff auf Monat & Jahr, Auswertung oder Sicherung, nur Kunden
-    // suchen/anlegen/importieren und Auftraege buchen. Ohne Benutzername/
-    // Passwort bekommt sie ein reines Lohnprofil ganz ohne Zugang.
+    // Bewusst ohne Login - Stefan braucht das nicht, er traegt ihre Stunden
+    // selbst ein (ueber "Fuer wen?"). Nur ein Lohnprofil fuer die Treuhand-
+    // Lohnabrechnung (treuhand.rs).
     auth::mitarbeiterin_anlegen(&conn, &eingabe).map_err(|e| e.to_string())
 }
 

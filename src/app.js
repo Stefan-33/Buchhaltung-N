@@ -1347,25 +1347,23 @@
   });
 
   // ================= MITARBEITERIN ANLEGEN =================
+  // Bewusst ohne Login-Option: eine Mitarbeiterin bekommt hier nur ein
+  // Lohnprofil (fuer die Treuhand-Lohnabrechnung), keinen Zugang zum
+  // Programm - Stefan traegt ihre Stunden selbst ein (ueber "Fuer wen?").
   var elMaDialog = document.getElementById("mitarbeiterinDialog");
   var elMaFehler = document.getElementById("ma-fehler");
   var elMaErfolg = document.getElementById("ma-erfolg");
   var elMaKnopf = document.getElementById("ma-anlegen");
 
-  var elMaLoginAktiv = document.getElementById("ma-login-aktiv");
-  var elMaLoginFelder = document.getElementById("ma-login-felder");
-
   document.getElementById("mitarbeiterinAnlegenKnopf").addEventListener("click", function () {
     document.getElementById("mitarbeiterinFormular").reset();
     document.getElementById("ma-anzeigename").value = "Mitarbeiterin 1";
-    elMaLoginFelder.hidden = true;
     elMaFehler.hidden = true;
     elMaErfolg.hidden = true;
     elMaDialog.showModal();
     document.getElementById("ma-anzeigename").focus();
   });
   document.getElementById("ma-abbrechen").addEventListener("click", function () { elMaDialog.close(); });
-  elMaLoginAktiv.addEventListener("change", function () { elMaLoginFelder.hidden = !elMaLoginAktiv.checked; });
 
   elMaKnopf.addEventListener("click", function () {
     elMaFehler.hidden = true;
@@ -1386,38 +1384,11 @@
       return;
     }
 
-    if (elMaLoginAktiv.checked) {
-      var benutzername = document.getElementById("ma-benutzername").value.trim();
-      var passwort = document.getElementById("ma-passwort").value;
-      var passwort2 = document.getElementById("ma-passwort2").value;
-      if (!benutzername || !passwort || !passwort2) {
-        elMaFehler.textContent = "Bitte Benutzername und Passwort ausfüllen.";
-        elMaFehler.hidden = false;
-        return;
-      }
-      if (passwort !== passwort2) {
-        elMaFehler.textContent = "Die beiden Passwörter stimmen nicht überein.";
-        elMaFehler.hidden = false;
-        return;
-      }
-      if (passwort.length < 6) {
-        elMaFehler.textContent = "Mindestens 6 Zeichen.";
-        elMaFehler.hidden = false;
-        return;
-      }
-      eingabe.benutzername = benutzername;
-      eingabe.passwort = passwort;
-    }
-
     knopfSperren(elMaKnopf, true);
     invoke("mitarbeiterin_anlegen", { eingabe: eingabe })
-      .then(function (angelegt) {
-        elMaErfolg.textContent = angelegt.hat_login
-          ? "Angelegt. Zum Anmelden: Benutzername „" + angelegt.benutzername + "“ und das eben vergebene Passwort."
-          : "Angelegt, ohne eigenen Login - Stunden trägst du für sie unter „Für wen?“ ein.";
+      .then(function () {
+        elMaErfolg.textContent = "Angelegt - Stunden trägst du für sie unter „Für wen?“ ein.";
         elMaErfolg.hidden = false;
-        document.getElementById("ma-passwort").value = "";
-        document.getElementById("ma-passwort2").value = "";
       })
       .catch(function (e) {
         elMaFehler.textContent = fehlerText(e);

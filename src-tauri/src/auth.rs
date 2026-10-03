@@ -29,9 +29,9 @@ pub struct Benutzer {
 
 /// Eingabe fuer "Mitarbeiterin anlegen" - deckt gleich das ganze
 /// Lohnprofil mit ab (Stefans Wunsch: "direkt auch mit allem anlegen"),
-/// statt nur Benutzername/Anzeigename wie bisher. Login ist bewusst
-/// optional: ohne Benutzername+Passwort bekommt sie ein reines
-/// Lohn-Profil ohne Zugang zum Programm ("kein Login gar nix").
+/// statt nur Benutzername/Anzeigename wie bisher. Bewusst kein Login
+/// dabei - braucht es laut Stefan nicht, sie bekommt ein reines
+/// Lohn-Profil ohne Zugang zum Programm.
 #[derive(Debug, Deserialize)]
 pub struct NeueMitarbeiterin {
     pub anzeigename: String,
@@ -43,10 +43,6 @@ pub struct NeueMitarbeiterin {
     pub ahv_nummer: String,
     #[serde(default)]
     pub stundenlohn: Option<f64>,
-    #[serde(default)]
-    pub benutzername: Option<String>,
-    #[serde(default)]
-    pub passwort: Option<String>,
 }
 
 const BENUTZER_SPALTEN: &str = "id, benutzername, anzeigename, rolle, strasse, plz_ort, ahv_nummer, stundenlohn, hat_login";
@@ -186,28 +182,19 @@ pub fn passwort_aendern(conn: &Connection, benutzer_id: i64, neues_passwort: &st
     Ok(())
 }
 
-/// "+ Mitarbeiterin anlegen": nimmt gleich das ganze Lohnprofil entgegen.
-/// Ohne Benutzername+Passwort (beides leer) bekommt sie ein reines
-/// Lohn-Profil ohne Zugang - Stefan traegt ihre Stunden dann selbst ein
-/// (ueber "Fuer wen?" beim Stunden-Import/-Erfassen).
+/// "+ Mitarbeiterin anlegen": nimmt gleich das ganze Lohnprofil entgegen,
+/// aber nie einen Login - Stefan braucht das nicht, er traegt ihre Stunden
+/// selbst ein (ueber "Fuer wen?" beim Stunden-Import/-Erfassen). Benutzer-
+/// name+Passwort werden rein intern generiert, nur um die UNIQUE/NOT
+/// NULL-Vorgaben der Tabelle zu erfuellen - niemand bekommt sie je zu sehen.
 pub fn mitarbeiterin_anlegen(conn: &Connection, eingabe: &NeueMitarbeiterin) -> Result<Benutzer, AuthFehler> {
     let anzeigename = eingabe.anzeigename.trim();
-    let eigener_login = eingabe
-        .benutzername
-        .as_deref()
-        .map(str::trim)
-        .filter(|b| !b.is_empty())
-        .zip(eingabe.passwort.as_deref().filter(|p| !p.is_empty()));
-
-    let (benutzername, passwort, hat_login) = match eigener_login {
-        Some((b, p)) => (b.to_string(), p.to_string(), true),
-        None => (zufallstext("mitarbeiterin"), zufallstext("pw"), false),
-    };
-    let hash = passwort_hashen(&passwort)?;
+    let benutzername = zufallstext("mitarbeiterin");
+    let hash = passwort_hashen(&zufallstext("pw"))?;
 
     let ergebnis = conn.execute(
         "INSERT INTO benutzer (benutzername, anzeigename, passwort_hash, rolle, strasse, plz_ort, ahv_nummer, stundenlohn, hat_login)
-         VALUES (?1, ?2, ?3, 'mitarbeiterin', ?4, ?5, ?6, ?7, ?8)",
+         VALUES (?1, ?2, ?3, 'mitarbeiterin', ?4, ?5, ?6, ?7, 0)",
         rusqlite::params![
             benutzername,
             anzeigename,
@@ -216,7 +203,6 @@ pub fn mitarbeiterin_anlegen(conn: &Connection, eingabe: &NeueMitarbeiterin) -> 
             eingabe.plz_ort.trim(),
             eingabe.ahv_nummer.trim(),
             eingabe.stundenlohn,
-            hat_login as i64,
         ],
     );
     match ergebnis {
@@ -292,8 +278,6 @@ mod tests {
             plz_ort: "".into(),
             ahv_nummer: "".into(),
             stundenlohn: None,
-            benutzername: None,
-            passwort: None,
         }
     }
 
@@ -343,19 +327,6 @@ mod tests {
 
         let alle = alle_benutzer(&conn).unwrap();
         assert!(alle.iter().any(|b| b.id == angelegt.id), "muss fuer 'Fuer wen?' auftauchen");
-    }
-
-    #[test]
-    fn mitarbeiterin_mit_eigenem_login_kann_sich_anmelden() {
-        let conn = test_db();
-        let mut eingabe = neue_mitarbeiterin("Mitarbeiterin 2");
-        eingabe.benutzername = Some("mitarbeiterin2".into());
-        eingabe.passwort = Some("geheim123".into());
-
-        let angelegt = mitarbeiterin_anlegen(&conn, &eingabe).unwrap();
-        assert!(angelegt.hat_login);
-        let eingeloggt = anmelden(&conn, "mitarbeiterin2", "geheim123").unwrap();
-        assert_eq!(eingeloggt.id, angelegt.id);
     }
 
     #[test]
