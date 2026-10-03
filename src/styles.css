@@ -275,6 +275,14 @@ input{font:inherit;color:inherit;}
 .zeitblock-paar .feld{width:124px;}
 
 /* ---------- Drucken: nur die Quittung, sonst nichts ---------- */
+/* Stefan druckt auf A3 (normaler Drucker, kein Bon-Automat) - ohne diese
+   Regel entscheidet sonst der Drucker/die Druckvorschau selbst ueber die
+   Papiergroesse (meist A4), was zu unnoetigem Verschnitt oder einer
+   zweiten, fast leeren Seite fuehrt. */
+@page{
+  size: A3;
+  margin: 15mm;
+}
 @media print{
   body *{visibility:hidden;}
   .quittung, .quittung *{visibility:visible;}
