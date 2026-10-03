@@ -122,6 +122,7 @@
         <button role="tab" id="r-arbeit" aria-selected="true" aria-controls="t-arbeit">Arbeiten</button>
         <button role="tab" id="r-stunden" aria-selected="false" aria-controls="t-stunden">Stunden</button>
         <button role="tab" id="r-monat" aria-selected="false" aria-controls="t-monat">Monat &amp; Jahr</button>
+        <button role="tab" id="r-treuhand" aria-selected="false" aria-controls="t-treuhand">Treuhand</button>
         <button role="tab" id="r-einstellungen" aria-selected="false" aria-controls="t-einstellungen">Einstellungen</button>
       </div>
       <div class="kopf-benutzer">
@@ -288,6 +289,68 @@
       </div>
     </section>
 
+    <!-- ============ TREUHAND ============ -->
+    <section id="t-treuhand" role="tabpanel" aria-labelledby="r-treuhand" hidden>
+      <div class="tafel">
+        <div class="tafel-kopf">
+          <h2 id="thJahrTitel">Jahr</h2>
+          <p>Geschäftsausgaben erfassen und den Jahresbericht für die Treuhand exportieren</p>
+        </div>
+        <div class="abschnitt">
+          <div class="knopfreihe" style="margin-top:0">
+            <button class="knopf" id="thVorKnopf">‹ Vorjahr</button>
+            <button class="knopf" id="thZurueckKnopf">Dieses Jahr</button>
+            <button class="knopf" id="thNachKnopf">Nächstes Jahr ›</button>
+          </div>
+        </div>
+        <div class="abschnitt">
+          <h3 style="margin-top:0">Ausgabe erfassen</h3>
+          <div class="zeit-erfassen-zeile">
+            <label class="feld" style="margin-top:0"><span>Datum</span><input id="th-datum" type="date"></label>
+            <label class="feld" style="margin-top:0"><span>Kategorie</span><select id="th-kategorie"></select></label>
+            <label class="feld" style="margin-top:0"><span>Betrag (CHF)</span><input id="th-betrag" type="number" step="0.01" min="0"></label>
+            <label class="feld zeit-notiz" style="margin-top:0"><span>Notiz (optional)</span><input id="th-notiz"></label>
+          </div>
+          <p id="th-fehler" class="login-fehler" hidden></p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="th-erfassen">Erfassen</button>
+          </div>
+        </div>
+        <div class="abschnitt">
+          <h3>Ausgaben dieses Jahres</h3>
+          <div class="tabellenrahmen">
+            <table class="auflistung">
+              <thead><tr><th>Datum</th><th>Kategorie</th><th class="re">Betrag</th><th>Notiz</th><th></th></tr></thead>
+              <tbody id="thListe"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="abschnitt knopfreihe">
+          <button class="knopf" id="thBerichtKnopf">Treuhand-Jahresbericht exportieren</button>
+          <span id="thBerichtEcho" style="font-size:13px;color:var(--gruen);font-weight:600;"></span>
+        </div>
+      </div>
+
+      <div class="tafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2>Lohnabrechnung</h2>
+          <p>Berechnet aus den bereits erfassten Stunden einer Mitarbeiterin und ihrem hinterlegten Stundenlohn</p>
+        </div>
+        <div class="abschnitt">
+          <div class="zeit-erfassen-zeile">
+            <label class="feld" style="margin-top:0"><span>Mitarbeiterin</span><select id="th-lohn-person"></select></label>
+            <label class="feld" style="margin-top:0"><span>Monat</span><select id="th-lohn-monat"></select></label>
+            <label class="feld" style="margin-top:0;width:100px"><span>Jahr</span><input id="th-lohn-jahr" type="number"></label>
+          </div>
+          <p id="th-lohn-fehler" class="login-fehler" hidden></p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="th-lohn-exportieren">Lohnabrechnung exportieren</button>
+            <span id="thLohnEcho" style="font-size:13px;color:var(--gruen);font-weight:600;"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ EINSTELLUNGEN ============ -->
     <section id="t-einstellungen" role="tabpanel" aria-labelledby="r-einstellungen" hidden>
       <div class="arbeit">
@@ -359,6 +422,25 @@
           <p id="ei-karten-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
           <div class="knopfreihe">
             <button class="knopf knopf-voll" id="eiKartenKnopf">Speichern</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tafel" id="eiLohnTafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2>Lohn-Prozentsätze</h2>
+          <p>Für die automatische Lohnabrechnung (Reiter „Treuhand") - ändern sich gelegentlich von Jahr zu Jahr</p>
+        </div>
+        <div class="abschnitt">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            <label class="feld" style="margin-top:0"><span>Ferienzuschlag (%)</span><input id="ei-lohn-ferienzuschlag" type="number" step="0.01" min="0" max="100"></label>
+            <label class="feld" style="margin-top:0"><span>AHV/IV/EO (%)</span><input id="ei-lohn-ahv" type="number" step="0.01" min="0" max="100"></label>
+            <label class="feld" style="margin-top:0"><span>ALV (%)</span><input id="ei-lohn-alv" type="number" step="0.01" min="0" max="100"></label>
+          </div>
+          <p id="ei-lohn-fehler" class="login-fehler" hidden></p>
+          <p id="ei-lohn-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="eiLohnKnopf">Speichern</button>
           </div>
         </div>
       </div>
@@ -457,9 +539,22 @@
   <form id="mitarbeiterinFormular" method="dialog" class="dialog-karte">
     <h2>Mitarbeiterin anlegen</h2>
     <label class="feld"><span>Anzeigename</span><input id="ma-anzeigename" value="Mitarbeiterin 1"></label>
-    <label class="feld"><span>Benutzername (zum Anmelden)</span><input id="ma-benutzername" value="mitarbeiterin1" autocomplete="off"></label>
-    <label class="feld"><span>Passwort (mind. 6 Zeichen)</span><input id="ma-passwort" type="password" autocomplete="new-password"></label>
-    <label class="feld"><span>Passwort wiederholen</span><input id="ma-passwort2" type="password" autocomplete="new-password"></label>
+    <label class="feld"><span>Strasse</span><input id="ma-strasse"></label>
+    <label class="feld"><span>PLZ, Wohnort</span><input id="ma-plz-ort"></label>
+    <label class="feld"><span>AHV-Nummer</span><input id="ma-ahv-nummer" placeholder="756.XXXX.XXXX.XX"></label>
+    <label class="feld"><span>Stundenlohn (CHF, für die Lohnabrechnung)</span><input id="ma-stundenlohn" type="number" step="0.01" min="0"></label>
+    <label class="schalter" style="margin-top:10px">
+      <input type="checkbox" id="ma-login-aktiv"> Soll sich selbst im Programm anmelden können
+    </label>
+    <p class="login-hinweis" id="ma-login-hinweis">
+      Ohne eigenen Login: du trägst ihre Stunden selbst ein (über „Für wen?“ bei
+      Stunden erfassen/importieren), sie braucht das Programm nie zu öffnen.
+    </p>
+    <div id="ma-login-felder" hidden>
+      <label class="feld"><span>Benutzername (zum Anmelden)</span><input id="ma-benutzername" autocomplete="off"></label>
+      <label class="feld"><span>Passwort (mind. 6 Zeichen)</span><input id="ma-passwort" type="password" autocomplete="new-password"></label>
+      <label class="feld"><span>Passwort wiederholen</span><input id="ma-passwort2" type="password" autocomplete="new-password"></label>
+    </div>
     <p id="ma-fehler" class="login-fehler" hidden></p>
     <p id="ma-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
     <div class="knopfreihe" style="justify-content:flex-end">

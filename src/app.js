@@ -56,6 +56,9 @@
     kartensatz_b: 2.5,
     quittung_hinweis1: "Reklamationen innert 10 Tagen nach Abholung",
     quittung_hinweis2: "Kundenexemplar · Kartensatz und Gebühr erscheinen hier nie.",
+    lohn_ferienzuschlag_satz: 8.33,
+    lohn_ahv_satz: 5.3,
+    lohn_alv_satz: 1.1,
   };
   function kartensatzText(wert) {
     return wert === null || wert === undefined || wert === "" ? "" : String(wert).replace(".", ",") + " %";
@@ -106,11 +109,13 @@
   function rolleAnwenden(rolle) {
     var istMitarbeiterin = rolle === "mitarbeiterin";
     document.getElementById("r-monat").hidden = istMitarbeiterin;
+    document.getElementById("r-treuhand").hidden = istMitarbeiterin;
     document.getElementById("stAlleTafel").hidden = istMitarbeiterin;
     // Geschaeftsangaben und Kartengebuehr-Saetze gelten fuer den ganzen
     // Betrieb, nicht fuer eine einzelne Person - nur Papa/Mama aendern die.
     document.getElementById("eiGeschaeftTafel").hidden = istMitarbeiterin;
     document.getElementById("eiKartenTafel").hidden = istMitarbeiterin;
+    document.getElementById("eiLohnTafel").hidden = istMitarbeiterin;
     if (istMitarbeiterin) {
       // Falls von einem frueheren Login noch der Monat-Reiter aktiv war.
       document.getElementById("r-arbeit").click();
@@ -1347,45 +1352,69 @@
   var elMaErfolg = document.getElementById("ma-erfolg");
   var elMaKnopf = document.getElementById("ma-anlegen");
 
+  var elMaLoginAktiv = document.getElementById("ma-login-aktiv");
+  var elMaLoginFelder = document.getElementById("ma-login-felder");
+
   document.getElementById("mitarbeiterinAnlegenKnopf").addEventListener("click", function () {
     document.getElementById("mitarbeiterinFormular").reset();
     document.getElementById("ma-anzeigename").value = "Mitarbeiterin 1";
-    document.getElementById("ma-benutzername").value = "mitarbeiterin1";
+    elMaLoginFelder.hidden = true;
     elMaFehler.hidden = true;
     elMaErfolg.hidden = true;
     elMaDialog.showModal();
     document.getElementById("ma-anzeigename").focus();
   });
   document.getElementById("ma-abbrechen").addEventListener("click", function () { elMaDialog.close(); });
+  elMaLoginAktiv.addEventListener("change", function () { elMaLoginFelder.hidden = !elMaLoginAktiv.checked; });
 
   elMaKnopf.addEventListener("click", function () {
     elMaFehler.hidden = true;
     elMaErfolg.hidden = true;
     var anzeigename = document.getElementById("ma-anzeigename").value.trim();
-    var benutzername = document.getElementById("ma-benutzername").value.trim();
-    var passwort = document.getElementById("ma-passwort").value;
-    var passwort2 = document.getElementById("ma-passwort2").value;
+    var stundenlohnText = document.getElementById("ma-stundenlohn").value.trim();
+    var eingabe = {
+      anzeigename: anzeigename,
+      strasse: document.getElementById("ma-strasse").value.trim(),
+      plz_ort: document.getElementById("ma-plz-ort").value.trim(),
+      ahv_nummer: document.getElementById("ma-ahv-nummer").value.trim(),
+      stundenlohn: stundenlohnText ? Number(stundenlohnText) : null,
+    };
 
-    if (!anzeigename || !benutzername || !passwort || !passwort2) {
-      elMaFehler.textContent = "Bitte alle Felder ausfüllen.";
+    if (!anzeigename) {
+      elMaFehler.textContent = "Bitte mindestens den Anzeigenamen ausfüllen.";
       elMaFehler.hidden = false;
       return;
     }
-    if (passwort !== passwort2) {
-      elMaFehler.textContent = "Die beiden Passwörter stimmen nicht überein.";
-      elMaFehler.hidden = false;
-      return;
-    }
-    if (passwort.length < 6) {
-      elMaFehler.textContent = "Mindestens 6 Zeichen.";
-      elMaFehler.hidden = false;
-      return;
+
+    if (elMaLoginAktiv.checked) {
+      var benutzername = document.getElementById("ma-benutzername").value.trim();
+      var passwort = document.getElementById("ma-passwort").value;
+      var passwort2 = document.getElementById("ma-passwort2").value;
+      if (!benutzername || !passwort || !passwort2) {
+        elMaFehler.textContent = "Bitte Benutzername und Passwort ausfüllen.";
+        elMaFehler.hidden = false;
+        return;
+      }
+      if (passwort !== passwort2) {
+        elMaFehler.textContent = "Die beiden Passwörter stimmen nicht überein.";
+        elMaFehler.hidden = false;
+        return;
+      }
+      if (passwort.length < 6) {
+        elMaFehler.textContent = "Mindestens 6 Zeichen.";
+        elMaFehler.hidden = false;
+        return;
+      }
+      eingabe.benutzername = benutzername;
+      eingabe.passwort = passwort;
     }
 
     knopfSperren(elMaKnopf, true);
-    invoke("mitarbeiterin_anlegen", { benutzername: benutzername, anzeigename: anzeigename, passwort: passwort })
-      .then(function () {
-        elMaErfolg.textContent = "Angelegt. Zum Anmelden: Benutzername „" + benutzername + "“ und das eben vergebene Passwort.";
+    invoke("mitarbeiterin_anlegen", { eingabe: eingabe })
+      .then(function (angelegt) {
+        elMaErfolg.textContent = angelegt.hat_login
+          ? "Angelegt. Zum Anmelden: Benutzername „" + angelegt.benutzername + "“ und das eben vergebene Passwort."
+          : "Angelegt, ohne eigenen Login - Stunden trägst du für sie unter „Für wen?“ ein.";
         elMaErfolg.hidden = false;
         document.getElementById("ma-passwort").value = "";
         document.getElementById("ma-passwort2").value = "";
@@ -1400,6 +1429,128 @@
     f.addEventListener("keydown", enterLoest(function () { elMaKnopf.click(); }));
   });
 
+  // ================= TREUHAND =================
+  // Geschaeftsausgaben erfassen (feste Kategorie-Liste, siehe treuhand.rs)
+  // und daraus den jaehrlichen Einnahmen/Ausgaben-Bericht fuer die Treuhand
+  // exportieren - ersetzt Stefans bisherige "Treuhand - Umsatz"-Excel.
+  // Dazu die monatliche Lohnabrechnung einer Mitarbeiterin, berechnet aus
+  // den schon erfassten Stunden und ihrem hinterlegten Stundenlohn.
+  var thJahr = new Date().getFullYear();
+  var elThListe = document.getElementById("thListe");
+  var elThKategorie = document.getElementById("th-kategorie");
+  var elThFehler = document.getElementById("th-fehler");
+  var thKategorienGeladen = false;
+
+  function thJahrLaden() {
+    document.getElementById("thJahrTitel").textContent = "Jahr " + thJahr;
+    invoke("ausgaben_eines_jahres", { jahr: thJahr })
+      .then(thListeZeichnen)
+      .catch(function (e) { elThListe.innerHTML = '<tr><td colspan="5" class="leer">' + fehlerText(e) + "</td></tr>"; });
+  }
+
+  function thListeZeichnen(ausgaben) {
+    if (!ausgaben.length) {
+      elThListe.innerHTML = '<tr><td colspan="5" class="leer">Noch keine Ausgaben erfasst.</td></tr>';
+      return;
+    }
+    elThListe.innerHTML = ausgaben
+      .map(function (a) {
+        return "<tr><td>" + datumKurz(a.datum) + "</td><td>" + escapeHtml(a.kategorie) + '</td><td class="re">' +
+          chf(a.betrag) + "</td><td>" + escapeHtml(a.notiz) + '</td><td><button type="button" class="weg" data-id="' +
+          a.id + '" title="Ausgabe löschen">×</button></td></tr>';
+      })
+      .join("");
+    elThListe.querySelectorAll("button[data-id]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        invoke("ausgabe_loeschen", { id: Number(btn.getAttribute("data-id")) })
+          .then(thJahrLaden)
+          .catch(function (e) { alert(fehlerText(e)); });
+      });
+    });
+  }
+
+  function thLaden() {
+    thJahrLaden();
+    if (!thKategorienGeladen) {
+      thKategorienGeladen = true;
+      invoke("ausgaben_kategorien").then(function (kategorien) {
+        elThKategorie.innerHTML = kategorien.map(function (k) { return "<option>" + escapeHtml(k) + "</option>"; }).join("");
+      });
+    }
+    document.getElementById("th-datum").value = datumHeute();
+
+    invoke("alle_benutzer").then(function (benutzer) {
+      var mitarbeiterinnen = benutzer.filter(function (b) { return b.rolle === "mitarbeiterin"; });
+      var elPerson = document.getElementById("th-lohn-person");
+      elPerson.innerHTML = mitarbeiterinnen.length
+        ? mitarbeiterinnen.map(function (b) { return '<option value="' + b.id + '">' + escapeHtml(b.anzeigename) + "</option>"; }).join("")
+        : '<option value="">(keine Mitarbeiterin angelegt)</option>';
+    });
+    var elLohnMonat = document.getElementById("th-lohn-monat");
+    if (!elLohnMonat.options.length) {
+      elLohnMonat.innerHTML = MONATSNAMEN.map(function (name, i) { return '<option value="' + (i + 1) + '">' + name + "</option>"; }).join("");
+      elLohnMonat.value = new Date().getMonth() + 1;
+    }
+    document.getElementById("th-lohn-jahr").value = thJahr;
+  }
+
+  document.getElementById("thVorKnopf").addEventListener("click", function () { thJahr -= 1; thJahrLaden(); });
+  document.getElementById("thNachKnopf").addEventListener("click", function () { thJahr += 1; thJahrLaden(); });
+  document.getElementById("thZurueckKnopf").addEventListener("click", function () { thJahr = new Date().getFullYear(); thJahrLaden(); });
+
+  document.getElementById("th-erfassen").addEventListener("click", function () {
+    elThFehler.hidden = true;
+    var eingabe = {
+      datum: document.getElementById("th-datum").value,
+      kategorie: elThKategorie.value,
+      betrag: Number(document.getElementById("th-betrag").value),
+      notiz: document.getElementById("th-notiz").value.trim(),
+    };
+    if (!eingabe.datum || !(eingabe.betrag > 0)) {
+      elThFehler.textContent = "Bitte Datum und einen Betrag grösser als 0 eingeben.";
+      elThFehler.hidden = false;
+      return;
+    }
+    var knopf = document.getElementById("th-erfassen");
+    knopfSperren(knopf, true);
+    invoke("ausgabe_erfassen", { eingabe: eingabe })
+      .then(function () {
+        document.getElementById("th-betrag").value = "";
+        document.getElementById("th-notiz").value = "";
+        thJahrLaden();
+      })
+      .catch(function (e) { elThFehler.textContent = fehlerText(e); elThFehler.hidden = false; })
+      .finally(function () { knopfSperren(knopf, false); });
+  });
+
+  document.getElementById("thBerichtKnopf").addEventListener("click", function () {
+    var echo = document.getElementById("thBerichtEcho");
+    echo.style.color = "var(--gruen)";
+    echo.textContent = "Exportiere …";
+    invoke("treuhand_bericht_exportieren", { jahr: thJahr })
+      .then(function (pfad) { echo.textContent = "Exportiert nach: " + pfad; })
+      .catch(function (e) { echo.textContent = fehlerText(e); echo.style.color = "var(--faden)"; });
+  });
+
+  document.getElementById("th-lohn-exportieren").addEventListener("click", function () {
+    var elFehler = document.getElementById("th-lohn-fehler");
+    elFehler.hidden = true;
+    var benutzerId = Number(document.getElementById("th-lohn-person").value);
+    if (!benutzerId) {
+      elFehler.textContent = "Bitte zuerst eine Mitarbeiterin anlegen.";
+      elFehler.hidden = false;
+      return;
+    }
+    var monat = Number(document.getElementById("th-lohn-monat").value);
+    var jahr = Number(document.getElementById("th-lohn-jahr").value);
+    var echo = document.getElementById("thLohnEcho");
+    echo.style.color = "var(--gruen)";
+    echo.textContent = "Exportiere …";
+    invoke("lohnabrechnung_exportieren", { benutzer_id: benutzerId, jahr: jahr, monat: monat })
+      .then(function (pfad) { echo.textContent = "Exportiert nach: " + pfad; })
+      .catch(function (e) { echo.textContent = ""; elFehler.textContent = fehlerText(e); elFehler.hidden = false; });
+  });
+
   // ================= EINSTELLUNGEN =================
   function einstellungenFormularFuellen() {
     document.getElementById("ei-geschaeft-name").value = aktuelleEinstellungen.geschaeft_name;
@@ -1411,6 +1562,9 @@
     document.getElementById("ei-quittung-hinweis2").value = aktuelleEinstellungen.quittung_hinweis2;
     document.getElementById("ei-kartensatz-a").value = aktuelleEinstellungen.kartensatz_a;
     document.getElementById("ei-kartensatz-b").value = aktuelleEinstellungen.kartensatz_b;
+    document.getElementById("ei-lohn-ferienzuschlag").value = aktuelleEinstellungen.lohn_ferienzuschlag_satz;
+    document.getElementById("ei-lohn-ahv").value = aktuelleEinstellungen.lohn_ahv_satz;
+    document.getElementById("ei-lohn-alv").value = aktuelleEinstellungen.lohn_alv_satz;
   }
 
   // --- Mein Konto: eigenes Passwort ---
@@ -1537,6 +1691,37 @@
       .finally(function () { knopfSperren(knopf, false); });
   });
 
+  // --- Lohn-Prozentsätze (nur Papa/Mama sichtbar) ---
+  document.getElementById("eiLohnKnopf").addEventListener("click", function () {
+    var elFehler = document.getElementById("ei-lohn-fehler");
+    var elErfolg = document.getElementById("ei-lohn-erfolg");
+    elFehler.hidden = true;
+    elErfolg.hidden = true;
+    var ferienzuschlag = parseFloat(document.getElementById("ei-lohn-ferienzuschlag").value);
+    var ahv = parseFloat(document.getElementById("ei-lohn-ahv").value);
+    var alv = parseFloat(document.getElementById("ei-lohn-alv").value);
+    if (![ferienzuschlag, ahv, alv].every(function (s) { return s >= 0 && s <= 100; })) {
+      elFehler.textContent = "Bitte alle drei Sätze zwischen 0 und 100 eingeben.";
+      elFehler.hidden = false;
+      return;
+    }
+    var neu = Object.assign({}, aktuelleEinstellungen, {
+      lohn_ferienzuschlag_satz: ferienzuschlag,
+      lohn_ahv_satz: ahv,
+      lohn_alv_satz: alv,
+    });
+    var knopf = document.getElementById("eiLohnKnopf");
+    knopfSperren(knopf, true);
+    invoke("einstellungen_speichern", { eingabe: neu })
+      .then(function () {
+        aktuelleEinstellungen = neu;
+        elErfolg.textContent = "Gespeichert.";
+        elErfolg.hidden = false;
+      })
+      .catch(function (e) { elFehler.textContent = fehlerText(e); elFehler.hidden = false; })
+      .finally(function () { knopfSperren(knopf, false); });
+  });
+
   // --- Import & Export: alles an einem Ort ---
   // Oeffnet dieselben Dialoge wie die Knoepfe auf den anderen Reitern -
   // keine zweite Kopie der Erfassungs-/Import-Logik noetig.
@@ -1565,6 +1750,7 @@
       });
       if (t.id === "r-monat") monatLaden();
       if (t.id === "r-stunden") stMonatLaden();
+      if (t.id === "r-treuhand") thLaden();
     });
   });
 

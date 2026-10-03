@@ -6,6 +6,7 @@ mod einstellungen;
 mod geschaeft;
 mod sicherung;
 mod stunden;
+mod treuhand;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -48,6 +49,7 @@ pub fn run() {
             commands::passwort_aendern,
             commands::zweites_konto_anlegen,
             commands::mitarbeiterin_anlegen,
+            commands::mitarbeiterin_profil_aktualisieren,
             commands::kunden_suchen,
             commands::kunde_anlegen,
             commands::kunden_importieren,
@@ -67,6 +69,12 @@ pub fn run() {
             commands::einstellungen_speichern,
             commands::datei_als_tabelle_lesen,
             commands::stunden_fuer_treuhand_exportieren,
+            commands::ausgaben_kategorien,
+            commands::ausgabe_erfassen,
+            commands::ausgaben_eines_jahres,
+            commands::ausgabe_loeschen,
+            commands::treuhand_bericht_exportieren,
+            commands::lohnabrechnung_exportieren,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,11 +2,12 @@
 // (Datenbank/Logik). Jede Funktion hier mit #[tauri::command(rename_all = "snake_case")] kann das
 // Frontend per invoke("funktionsname", { ... }) aufrufen.
 
-use crate::auth::{self, Benutzer};
+use crate::auth::{self, Benutzer, NeueMitarbeiterin};
 use crate::einstellungen::{self, Einstellungen};
 use crate::geschaeft::{self, Auftrag, Kunde, NeuerAuftrag, NeuerKunde};
 use crate::sicherung;
 use crate::stunden::{self, StundenEintrag};
+use crate::treuhand::{self, Ausgabe, NeueAusgabe};
 use crate::AppZustand;
 use tauri::State;
 
@@ -59,18 +60,29 @@ pub fn zweites_konto_anlegen(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn mitarbeiterin_anlegen(
-    zustand: State<AppZustand>,
-    benutzername: String,
-    anzeigename: String,
-    passwort: String,
-) -> Antwort<()> {
+pub fn mitarbeiterin_anlegen(zustand: State<AppZustand>, eingabe: NeueMitarbeiterin) -> Antwort<Benutzer> {
     let conn = verbindung_sperren(&zustand);
     // Eigene Rolle "mitarbeiterin": loest in der Oberflaeche die
     // eingeschraenkte Ansicht aus (siehe rolleAnwenden() in app.js) -
     // kein Zugriff auf Monat & Jahr, Auswertung oder Sicherung, nur Kunden
-    // suchen/anlegen/importieren und Auftraege buchen.
-    auth::konto_anlegen(&conn, &benutzername, &anzeigename, &passwort, "mitarbeiterin").map_err(|e| e.to_string())
+    // suchen/anlegen/importieren und Auftraege buchen. Ohne Benutzername/
+    // Passwort bekommt sie ein reines Lohnprofil ganz ohne Zugang.
+    auth::mitarbeiterin_anlegen(&conn, &eingabe).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn mitarbeiterin_profil_aktualisieren(
+    zustand: State<AppZustand>,
+    benutzer_id: i64,
+    anzeigename: String,
+    strasse: String,
+    plz_ort: String,
+    ahv_nummer: String,
+    stundenlohn: Option<f64>,
+) -> Antwort<Benutzer> {
+    let conn = verbindung_sperren(&zustand);
+    auth::mitarbeiterin_profil_aktualisieren(&conn, benutzer_id, &anzeigename, &strasse, &plz_ort, &ahv_nummer, stundenlohn)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -188,4 +200,39 @@ pub fn alle_stunden(zustand: State<AppZustand>, jahr: i32, monat: u32) -> Antwor
 pub fn stunden_loeschen(zustand: State<AppZustand>, id: i64, benutzer_id: i64) -> Antwort<()> {
     let conn = verbindung_sperren(&zustand);
     stunden::stunden_loeschen(&conn, id, benutzer_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn ausgaben_kategorien() -> Antwort<Vec<&'static str>> {
+    Ok(treuhand::AUSGABEN_KATEGORIEN.to_vec())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn ausgabe_erfassen(zustand: State<AppZustand>, eingabe: NeueAusgabe) -> Antwort<Ausgabe> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::ausgabe_erfassen(&conn, &eingabe).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn ausgaben_eines_jahres(zustand: State<AppZustand>, jahr: i32) -> Antwort<Vec<Ausgabe>> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::ausgaben_eines_jahres(&conn, jahr).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn ausgabe_loeschen(zustand: State<AppZustand>, id: i64) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::ausgabe_loeschen(&conn, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn treuhand_bericht_exportieren(zustand: State<AppZustand>, jahr: i32) -> Antwort<String> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::treuhand_bericht_exportieren(&conn, jahr).map(|p| p.display().to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn lohnabrechnung_exportieren(zustand: State<AppZustand>, benutzer_id: i64, jahr: i32, monat: u32) -> Antwort<String> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::lohnabrechnung_exportieren(&conn, benutzer_id, jahr, monat).map(|p| p.display().to_string())
 }

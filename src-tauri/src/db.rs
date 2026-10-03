@@ -130,6 +130,55 @@ fn schema_anlegen(conn: &Connection) -> rusqlite::Result<()> {
             erstellt_am     TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_arbeitsstunden_benutzer ON arbeitsstunden(benutzer_id, datum);
+
+        -- Geschaeftsausgaben fuer den jaehrlichen Treuhand-Bericht (Einnahmen
+        -- kommen weiterhin aus "auftraege", werden nicht hier dupliziert).
+        -- Feste Kategorie-Liste statt einer eigenen Tabelle dafuer - siehe
+        -- treuhand.rs - deckt sich mit Stefans bisheriger Treuhand-Excel.
+        CREATE TABLE IF NOT EXISTS ausgaben (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            datum       TEXT NOT NULL,
+            kategorie   TEXT NOT NULL,
+            betrag      REAL NOT NULL,
+            notiz       TEXT NOT NULL DEFAULT '',
+            erstellt_am TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_ausgaben_datum ON ausgaben(datum);
         "#,
-    )
+    )?;
+    migrationen_anwenden(conn)
+}
+
+/// Ob eine Spalte in einer bestehenden Tabelle noch fehlt - "CREATE TABLE IF
+/// NOT EXISTS" allein reicht nicht, sobald eine Spalte zu einer Tabelle
+/// dazukommt, die bei Stefan zuhause schon existiert (seine echte
+/// atelierbuch.sqlite3 wird nie neu angelegt, nur weiterverwendet).
+fn spalte_fehlt(conn: &Connection, tabelle: &str, spalte: &str) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({tabelle})"))?;
+    let vorhandene_spalten: Vec<String> = stmt.query_map([], |z| z.get(1))?.collect::<Result<_, _>>()?;
+    Ok(!vorhandene_spalten.iter().any(|s| s == spalte))
+}
+
+/// Spalten, die nach dem allerersten Release zu "benutzer" dazugekommen
+/// sind - fuer das Mitarbeiterinnen-Lohnprofil (Treuhand-Lohnabrechnung).
+/// Bewusst einzeln per ALTER TABLE nachgezogen statt die Tabelle neu
+/// anzulegen, damit die bestehenden Konten (Papa, Mama, ...) erhalten
+/// bleiben.
+fn migrationen_anwenden(conn: &Connection) -> rusqlite::Result<()> {
+    let neue_spalten: &[(&str, &str)] = &[
+        ("strasse", "TEXT NOT NULL DEFAULT ''"),
+        ("plz_ort", "TEXT NOT NULL DEFAULT ''"),
+        ("ahv_nummer", "TEXT NOT NULL DEFAULT ''"),
+        ("stundenlohn", "REAL"),
+        // 1 = kann sich selbst anmelden, 0 = reines Lohn-Profil ohne Zugang
+        // (siehe Stefans Wunsch "kein Login gar nix" fuer eine
+        // Mitarbeiterin, deren Stunden er selbst eintraegt).
+        ("hat_login", "INTEGER NOT NULL DEFAULT 1"),
+    ];
+    for (spalte, definition) in neue_spalten {
+        if spalte_fehlt(conn, "benutzer", spalte)? {
+            conn.execute(&format!("ALTER TABLE benutzer ADD COLUMN {spalte} {definition}"), [])?;
+        }
+    }
+    Ok(())
 }

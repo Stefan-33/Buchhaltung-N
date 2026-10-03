@@ -18,8 +18,8 @@ pub enum EinstellungenFehler {
     Datenbank(#[from] rusqlite::Error),
     #[error("Der Geschäftsname darf nicht leer sein")]
     NameLeer,
-    #[error("Kartengebühr-Satz muss zwischen 0 und 100 liegen")]
-    UngueltigerKartensatz,
+    #[error("Prozentsatz muss zwischen 0 und 100 liegen")]
+    UngueltigerProzentsatz,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -36,6 +36,12 @@ pub struct Einstellungen {
     // zu können".
     pub quittung_hinweis1: String,
     pub quittung_hinweis2: String,
+    // Saetze fuer die automatische Lohnabrechnung einer Mitarbeiterin
+    // (treuhand.rs), in Prozent - aendern sich gelegentlich von Jahr zu
+    // Jahr, darum hier einstellbar statt im Code fest einprogrammiert.
+    pub lohn_ferienzuschlag_satz: f64,
+    pub lohn_ahv_satz: f64,
+    pub lohn_alv_satz: f64,
 }
 
 impl Default for Einstellungen {
@@ -53,6 +59,12 @@ impl Default for Einstellungen {
             kartensatz_b: 2.5,
             quittung_hinweis1: "Reklamationen innert 10 Tagen nach Abholung".into(),
             quittung_hinweis2: "Kundenexemplar · Kartensatz und Gebühr erscheinen hier nie.".into(),
+            // Stand 2024/2025 fuer den Kanton Schwyz, genau wie in Stefans
+            // bisheriger Lohnabrechnung-Excel (KTV/NBU bewusst nicht
+            // automatisiert - bei ihm bisher ohne Abzug).
+            lohn_ferienzuschlag_satz: 8.33,
+            lohn_ahv_satz: 5.3,
+            lohn_alv_satz: 1.1,
         }
     }
 }
@@ -76,6 +88,11 @@ pub fn einstellungen_lesen(conn: &Connection) -> Result<Einstellungen, Einstellu
         kartensatz_b: lesen(conn, "kartensatz_b", &d.kartensatz_b.to_string())?.parse().unwrap_or(d.kartensatz_b),
         quittung_hinweis1: lesen(conn, "quittung_hinweis1", &d.quittung_hinweis1)?,
         quittung_hinweis2: lesen(conn, "quittung_hinweis2", &d.quittung_hinweis2)?,
+        lohn_ferienzuschlag_satz: lesen(conn, "lohn_ferienzuschlag_satz", &d.lohn_ferienzuschlag_satz.to_string())?
+            .parse()
+            .unwrap_or(d.lohn_ferienzuschlag_satz),
+        lohn_ahv_satz: lesen(conn, "lohn_ahv_satz", &d.lohn_ahv_satz.to_string())?.parse().unwrap_or(d.lohn_ahv_satz),
+        lohn_alv_satz: lesen(conn, "lohn_alv_satz", &d.lohn_alv_satz.to_string())?.parse().unwrap_or(d.lohn_alv_satz),
     })
 }
 
@@ -92,9 +109,9 @@ pub fn einstellungen_speichern(conn: &Connection, e: &Einstellungen) -> Result<(
     if e.geschaeft_name.trim().is_empty() {
         return Err(EinstellungenFehler::NameLeer);
     }
-    for satz in [e.kartensatz_a, e.kartensatz_b] {
+    for satz in [e.kartensatz_a, e.kartensatz_b, e.lohn_ferienzuschlag_satz, e.lohn_ahv_satz, e.lohn_alv_satz] {
         if !(0.0..=100.0).contains(&satz) {
-            return Err(EinstellungenFehler::UngueltigerKartensatz);
+            return Err(EinstellungenFehler::UngueltigerProzentsatz);
         }
     }
 
@@ -107,6 +124,9 @@ pub fn einstellungen_speichern(conn: &Connection, e: &Einstellungen) -> Result<(
     schreiben(conn, "kartensatz_b", &e.kartensatz_b.to_string())?;
     schreiben(conn, "quittung_hinweis1", e.quittung_hinweis1.trim())?;
     schreiben(conn, "quittung_hinweis2", e.quittung_hinweis2.trim())?;
+    schreiben(conn, "lohn_ferienzuschlag_satz", &e.lohn_ferienzuschlag_satz.to_string())?;
+    schreiben(conn, "lohn_ahv_satz", &e.lohn_ahv_satz.to_string())?;
+    schreiben(conn, "lohn_alv_satz", &e.lohn_alv_satz.to_string())?;
     Ok(())
 }
 
@@ -142,6 +162,7 @@ mod tests {
             kartensatz_b: 2.9,
             quittung_hinweis1: "Hinweis 1".into(),
             quittung_hinweis2: "Hinweis 2".into(),
+            ..Einstellungen::default()
         };
         einstellungen_speichern(&conn, &neu).unwrap();
         let gelesen = einstellungen_lesen(&conn).unwrap();
@@ -164,10 +185,22 @@ mod tests {
         let conn = test_db();
         let mut e = Einstellungen::default();
         e.kartensatz_a = -1.0;
-        assert!(matches!(einstellungen_speichern(&conn, &e), Err(EinstellungenFehler::UngueltigerKartensatz)));
+        assert!(matches!(einstellungen_speichern(&conn, &e), Err(EinstellungenFehler::UngueltigerProzentsatz)));
 
         let mut e2 = Einstellungen::default();
         e2.kartensatz_b = 150.0;
-        assert!(matches!(einstellungen_speichern(&conn, &e2), Err(EinstellungenFehler::UngueltigerKartensatz)));
+        assert!(matches!(einstellungen_speichern(&conn, &e2), Err(EinstellungenFehler::UngueltigerProzentsatz)));
+    }
+
+    #[test]
+    fn lohn_saetze_werden_gespeichert_und_wieder_gelesen() {
+        let conn = test_db();
+        let mut e = Einstellungen::default();
+        e.lohn_ferienzuschlag_satz = 10.6;
+        e.lohn_ahv_satz = 5.3;
+        e.lohn_alv_satz = 1.1;
+        einstellungen_speichern(&conn, &e).unwrap();
+        let gelesen = einstellungen_lesen(&conn).unwrap();
+        assert_eq!(gelesen.lohn_ferienzuschlag_satz, 10.6);
     }
 }

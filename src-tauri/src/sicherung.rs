@@ -23,14 +23,14 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-fn sicherungs_ordner() -> PathBuf {
+pub(crate) fn sicherungs_ordner() -> PathBuf {
     let mut pfad = dirs::document_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_default());
     pfad.push("Atelierbuch Straub");
     pfad.push("Sicherung");
     pfad
 }
 
-fn csv_feld(text: &str) -> String {
+pub(crate) fn csv_feld(text: &str) -> String {
     // Anfuehrungszeichen verdoppeln und das Feld in Anfuehrungszeichen
     // setzen, sobald ein Komma, Zeilenumbruch oder Anfuehrungszeichen
     // drinsteckt - sonst zerlegt Excel die Zeile an der falschen Stelle.
@@ -145,7 +145,7 @@ pub fn jetzt_sichern(conn: &Connection) -> Result<PathBuf, String> {
     Ok(ziel_ordner)
 }
 
-fn schreiben(pfad: &PathBuf, inhalt: &str) -> Result<(), String> {
+pub(crate) fn schreiben(pfad: &PathBuf, inhalt: &str) -> Result<(), String> {
     let mut datei = fs::File::create(pfad).map_err(|e| e.to_string())?;
     // Byte-Order-Mark, damit Excel Umlaute (Muller, Kuhn, ...) korrekt
     // anzeigt statt als kryptische Zeichen - ein bekannter Excel-Eigenheit.
