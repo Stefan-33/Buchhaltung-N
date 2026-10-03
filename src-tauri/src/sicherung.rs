@@ -173,3 +173,54 @@ fn alte_sicherungen_aufraeumen() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Ein-Klick-Export der Stunden eines Monats (alle Personen) in eine
+/// eigene, uebersichtliche CSV-Datei - zum direkten Weitergeben an die
+/// Treuhand fuer die Lohnabrechnung, ohne dass die jeweils erst "Jetzt
+/// sichern" durchsuchen und die richtige Zeile raussuchen muessten. Rechnet
+/// weiterhin nichts aus (keinen Lohn) - nur die Rohdaten, uebersichtlich
+/// nach Person gruppiert mit Zwischen- und Gesamttotal.
+pub fn stunden_fuer_treuhand_exportieren(conn: &Connection, jahr: i32, monat: u32) -> Result<PathBuf, String> {
+    let eintraege = crate::stunden::alle_stunden(conn, jahr, monat).map_err(|e| e.to_string())?;
+
+    let ordner = sicherungs_ordner().join("Stunden für Treuhand");
+    fs::create_dir_all(&ordner).map_err(|e| e.to_string())?;
+    let pfad = ordner.join(format!("Stunden_{jahr:04}-{monat:02}.csv"));
+
+    let mut csv = String::from("Name,Datum,Beginn Vormittag,Ende Vormittag,Beginn Nachmittag,Ende Nachmittag,Stunden,Notiz\n");
+    let mut aktueller_name: Option<&str> = None;
+    let mut subtotal = 0.0_f64;
+    let mut gesamt = 0.0_f64;
+
+    for (i, e) in eintraege.iter().enumerate() {
+        if aktueller_name != Some(e.anzeigename.as_str()) {
+            if let Some(name) = aktueller_name {
+                csv.push_str(&format!(",,,,,Total {},{subtotal:.2},\n", csv_feld(name)));
+            }
+            aktueller_name = Some(e.anzeigename.as_str());
+            subtotal = 0.0;
+        }
+        subtotal += e.stunden;
+        gesamt += e.stunden;
+        csv.push_str(&format!(
+            "{},{},{},{},{},{},{:.2},{}\n",
+            csv_feld(&e.anzeigename),
+            e.datum,
+            e.vm_beginn.clone().unwrap_or_default(),
+            e.vm_ende.clone().unwrap_or_default(),
+            e.nm_beginn.clone().unwrap_or_default(),
+            e.nm_ende.clone().unwrap_or_default(),
+            e.stunden,
+            csv_feld(&e.notiz)
+        ));
+        if i == eintraege.len() - 1 {
+            if let Some(name) = aktueller_name {
+                csv.push_str(&format!(",,,,,Total {},{subtotal:.2},\n", csv_feld(name)));
+            }
+        }
+    }
+    csv.push_str(&format!(",,,,,Alle zusammen,{gesamt:.2},\n"));
+
+    schreiben(&pfad, &csv)?;
+    Ok(pfad)
+}

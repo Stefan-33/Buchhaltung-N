@@ -4,7 +4,7 @@
 // Genau das ersetzt die fehleranfaelligen Datei-zu-Datei-Verknuepfungen
 // aus dem bisherigen LibreOffice-Ablauf.
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, ErrorCode, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, thiserror::Error)]
@@ -38,12 +38,19 @@ pub struct Kunde {
 
 #[derive(Debug, Deserialize)]
 pub struct NeuerKunde {
+    // Nur beim Import gesetzt (z.B. um eine bestehende Kundennummer aus
+    // einer alten Excel-Liste zu uebernehmen) - beim normalen "+ Neuer
+    // Kunde"-Dialog nie mitgeschickt, daher "serde(default)" noetig.
+    #[serde(default)]
+    pub nummer: Option<i64>,
     pub name: String,
     pub vorname: String,
     pub telefon: String,
     pub ort: String,
     pub adresse: String,
     pub email: String,
+    #[serde(default)]
+    pub notiz: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -90,9 +97,9 @@ fn naechster_zaehler(conn: &Connection, schluessel: &str, start: i64) -> rusqlit
 pub fn kunde_anlegen(conn: &Connection, eingabe: NeuerKunde) -> Result<Kunde, GeschaeftFehler> {
     let nummer = naechster_zaehler(conn, "naechste_kundennummer", 101)?;
     conn.execute(
-        "INSERT INTO kunden (nummer, name, vorname, telefon, ort, adresse, email)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![nummer, eingabe.name, eingabe.vorname, eingabe.telefon, eingabe.ort, eingabe.adresse, eingabe.email],
+        "INSERT INTO kunden (nummer, name, vorname, telefon, ort, adresse, email, notiz)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![nummer, eingabe.name, eingabe.vorname, eingabe.telefon, eingabe.ort, eingabe.adresse, eingabe.email, eingabe.notiz],
     )?;
     let id = conn.last_insert_rowid();
     kunde_holen(conn, id)
@@ -102,18 +109,31 @@ pub fn kunde_anlegen(conn: &Connection, eingabe: NeuerKunde) -> Result<Kunde, Ge
 /// eingefuegte Tabelle bereits in NeuerKunde-Zeilen zerlegt. Laeuft in
 /// einer einzigen Transaktion: entweder kommt alles rein, oder bei einem
 /// echten Fehler nichts, statt einer halbfertigen Liste.
+///
+/// Ist bei einer Zeile eine Nummer mitgegeben (z.B. aus einer bestehenden
+/// Telefonliste mit eigenen Kundennummern), wird genau diese verwendet
+/// statt automatisch eine neue zu vergeben - praktisch fuer eine einmalige
+/// Uebernahme, bei der die alten Nummern erhalten bleiben sollen. Der
+/// laufende Zaehler fuer kuenftige, manuell angelegte Kunden wird danach
+/// auf die hoechste uebernommene Nummer + 1 angehoben, damit es keine
+/// Kollision gibt.
 pub fn kunden_importieren(conn: &mut Connection, eingaben: Vec<NeuerKunde>) -> Result<usize, GeschaeftFehler> {
     let tx = conn.transaction()?;
     let mut angelegt = 0usize;
+    let mut hoechste_uebernommene_nummer: Option<i64> = None;
+
     for eingabe in eingaben {
         let name = eingabe.name.trim();
         if name.is_empty() {
             continue; // Zeile ohne Namen ueberspringen statt den ganzen Import abzubrechen
         }
-        let nummer = naechster_zaehler(&tx, "naechste_kundennummer", 101)?;
-        tx.execute(
-            "INSERT INTO kunden (nummer, name, vorname, telefon, ort, adresse, email)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        let nummer = match eingabe.nummer {
+            Some(n) => n,
+            None => naechster_zaehler(&tx, "naechste_kundennummer", 101)?,
+        };
+        let ergebnis = tx.execute(
+            "INSERT INTO kunden (nummer, name, vorname, telefon, ort, adresse, email, notiz)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 nummer,
                 name,
@@ -122,10 +142,33 @@ pub fn kunden_importieren(conn: &mut Connection, eingaben: Vec<NeuerKunde>) -> R
                 eingabe.ort.trim(),
                 eingabe.adresse.trim(),
                 eingabe.email.trim(),
+                eingabe.notiz.trim(),
             ],
-        )?;
-        angelegt += 1;
+        );
+        match ergebnis {
+            Ok(_) => {
+                angelegt += 1;
+                if eingabe.nummer.is_some() {
+                    hoechste_uebernommene_nummer =
+                        Some(hoechste_uebernommene_nummer.map_or(nummer, |bisher| bisher.max(nummer)));
+                }
+            }
+            // "nummer" ist UNIQUE - eine doppelt vorkommende oder bereits
+            // vergebene Nummer soll diese eine Zeile ueberspringen statt
+            // den ganzen Import abzubrechen.
+            Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == ErrorCode::ConstraintViolation => continue,
+            Err(e) => return Err(e.into()),
+        }
     }
+
+    if let Some(hoechste) = hoechste_uebernommene_nummer {
+        tx.execute(
+            "INSERT INTO einstellungen (schluessel, wert) VALUES ('naechste_kundennummer', ?1)
+             ON CONFLICT(schluessel) DO UPDATE SET wert = ?1 WHERE CAST(wert AS INTEGER) < ?1",
+            params![hoechste.to_string()],
+        )?;
+    }
+
     tx.commit()?;
     Ok(angelegt)
 }
@@ -317,6 +360,19 @@ mod tests {
         conn
     }
 
+    fn neuer_kunde(name: &str, vorname: &str) -> NeuerKunde {
+        NeuerKunde {
+            nummer: None,
+            name: name.into(),
+            vorname: vorname.into(),
+            telefon: "".into(),
+            ort: "".into(),
+            adresse: "".into(),
+            email: "".into(),
+            notiz: "".into(),
+        }
+    }
+
     // Genau der Fall aus Stefans Anfrage: eine aus Excel/LibreOffice
     // eingefuegte Tabelle, in der Oberflaeche bereits in NeuerKunde-Zeilen
     // zerlegt. Eine Zeile ohne Namen (z.B. eine leere Excel-Zeile) muss
@@ -326,19 +382,10 @@ mod tests {
     fn kunden_import_ueberspringt_namenlose_zeilen_und_vergibt_nummern() {
         let mut conn = test_db();
         let eingaben = vec![
-            NeuerKunde {
-                name: "Meier".into(), vorname: "Hans".into(), telefon: "0791234567".into(),
-                ort: "Wollerau".into(), adresse: "Seestrasse 1".into(), email: "hans@meier.ch".into(),
-            },
-            NeuerKunde {
-                // Leere Excel-Zeile - darf nicht als Kunde "Niemand" landen.
-                name: "".into(), vorname: "".into(), telefon: "".into(),
-                ort: "".into(), adresse: "".into(), email: "".into(),
-            },
-            NeuerKunde {
-                name: "  Keller  ".into(), vorname: "Anna".into(), telefon: "".into(),
-                ort: "Freienbach".into(), adresse: "".into(), email: "".into(),
-            },
+            NeuerKunde { telefon: "0791234567".into(), ort: "Wollerau".into(), adresse: "Seestrasse 1".into(), email: "hans@meier.ch".into(), ..neuer_kunde("Meier", "Hans") },
+            // Leere Excel-Zeile - darf nicht als Kunde "Niemand" landen.
+            neuer_kunde("", ""),
+            NeuerKunde { ort: "Freienbach".into(), ..neuer_kunde("  Keller  ", "Anna") },
         ];
 
         let anzahl = kunden_importieren(&mut conn, eingaben).unwrap();
@@ -350,5 +397,52 @@ mod tests {
         assert_eq!(kunden[0].name, "Meier");
         assert_eq!(kunden[1].nummer, 102);
         assert_eq!(kunden[1].name, "Keller", "fuehrende/folgende Leerzeichen muessen getrimmt sein");
+    }
+
+    // Stefans Telefonliste hat eigene Kundennummern, die uebernommen werden
+    // sollen (siehe Chat) - und ein danach manuell angelegter Kunde darf
+    // nicht mit einer dieser Nummern kollidieren.
+    #[test]
+    fn kunden_import_uebernimmt_vorgegebene_nummern_und_hebt_zaehler_an() {
+        let mut conn = test_db();
+        let eingaben = vec![
+            NeuerKunde { nummer: Some(234), ..neuer_kunde("Arnold", "Yvonne") },
+            NeuerKunde { nummer: Some(987), ..neuer_kunde("Zbinden", "Peter") },
+            // Kein nummer -> automatisch vergeben, unabhaengig von den obigen.
+            neuer_kunde("Ohne Nummer", ""),
+        ];
+        let anzahl = kunden_importieren(&mut conn, eingaben).unwrap();
+        assert_eq!(anzahl, 3);
+
+        let kunden = kunden_suchen(&conn, "", false).unwrap();
+        let nummern: Vec<i64> = kunden.iter().map(|k| k.nummer).collect();
+        assert!(nummern.contains(&234));
+        assert!(nummern.contains(&987));
+
+        // Naechster manuell angelegter Kunde darf nicht mit 987 kollidieren.
+        let manuell = kunde_anlegen(&conn, neuer_kunde("Neu", "")).unwrap();
+        assert!(manuell.nummer > 987, "Zaehler haette auf > 987 angehoben werden muessen, war aber {}", manuell.nummer);
+    }
+
+    // Zwei Zeilen mit derselben (bereits vergebenen) Nummer duerfen den
+    // Import nicht komplett abbrechen - nur die kollidierende Zeile faellt
+    // raus.
+    #[test]
+    fn kunden_import_ueberspringt_doppelte_nummer_statt_abzubrechen() {
+        let mut conn = test_db();
+        kunden_importieren(&mut conn, vec![NeuerKunde { nummer: Some(500), ..neuer_kunde("Erste", "") }]).unwrap();
+
+        let anzahl = kunden_importieren(
+            &mut conn,
+            vec![
+                NeuerKunde { nummer: Some(500), ..neuer_kunde("Kollidiert", "") },
+                NeuerKunde { nummer: Some(501), ..neuer_kunde("Geht durch", "") },
+            ],
+        )
+        .unwrap();
+        assert_eq!(anzahl, 1, "nur die Zeile mit der neuen Nummer 501 zaehlt");
+
+        let kunden = kunden_suchen(&conn, "", false).unwrap();
+        assert_eq!(kunden.len(), 2); // "Erste" (500) + "Geht durch" (501), nicht "Kollidiert"
     }
 }

@@ -223,6 +223,10 @@
           <h2>Alle Mitarbeiterinnen</h2>
           <p>Übersicht für die Abrechnung - die eigentliche Lohnberechnung passiert weiterhin in Excel</p>
         </div>
+        <div class="abschnitt knopfreihe" style="margin-top:0">
+          <button class="knopf" id="treuhandExportKnopf">Für Treuhand exportieren</button>
+          <span id="treuhandExportEcho" style="font-size:13px;color:var(--gruen);font-weight:600;"></span>
+        </div>
         <div class="abschnitt" id="stAlleListe"></div>
       </div>
     </section>
@@ -331,6 +335,8 @@
           <label class="feld"><span>Adresse</span><input id="ei-geschaeft-adresse"></label>
           <label class="feld"><span>Telefon</span><input id="ei-geschaeft-telefon"></label>
           <label class="feld"><span>Website</span><input id="ei-geschaeft-web"></label>
+          <label class="feld"><span>Kleingedrucktes Zeile 1 (auf der Quittung)</span><input id="ei-quittung-hinweis1"></label>
+          <label class="feld"><span>Kleingedrucktes Zeile 2 (auf der Quittung)</span><input id="ei-quittung-hinweis2"></label>
           <p id="ei-geschaeft-fehler" class="login-fehler" hidden></p>
           <p id="ei-geschaeft-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
           <div class="knopfreihe">
@@ -402,6 +408,9 @@
       Spalten ist egal, sie wird automatisch erkannt. Fehlt eine Kopfzeile,
       wird genau diese Reihenfolge angenommen.
     </p>
+    <div class="knopfreihe" style="margin-top:0">
+      <button type="button" class="knopf" id="ki-datei">Excel-/CSV-Datei auswählen…</button>
+    </div>
     <textarea id="ki-text" class="textarea-eingabe" rows="6" placeholder="Hier einfügen…"></textarea>
     <label class="schalter" style="margin-top:10px">
       <input type="checkbox" id="ki-kopfzeile"> Erste Zeile ist Kopfzeile (wird nicht importiert)
@@ -430,6 +439,9 @@
       <span>Für wen?</span>
       <select id="sti-fuer-wen"></select>
     </label>
+    <div class="knopfreihe" style="margin-top:0">
+      <button type="button" class="knopf" id="sti-datei">Excel-/CSV-Datei auswählen…</button>
+    </div>
     <textarea id="sti-text" class="textarea-eingabe" rows="6" placeholder="Hier einfügen…"></textarea>
     <div id="sti-vorschau"></div>
     <p id="sti-fehler" class="login-fehler" hidden></p>

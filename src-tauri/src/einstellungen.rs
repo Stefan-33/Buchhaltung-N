@@ -31,6 +31,11 @@ pub struct Einstellungen {
     pub geschaeft_web: String,
     pub kartensatz_a: f64,
     pub kartensatz_b: f64,
+    // Die beiden Kleingedruckt-Zeilen ganz unten auf der Quittung - auch
+    // Stefans eigener Wunsch, "die Quittungen-Darstellung selbst ändern
+    // zu können".
+    pub quittung_hinweis1: String,
+    pub quittung_hinweis2: String,
 }
 
 impl Default for Einstellungen {
@@ -46,6 +51,8 @@ impl Default for Einstellungen {
             geschaeft_web: "naehservicestraub.ch".into(),
             kartensatz_a: 1.5,
             kartensatz_b: 2.5,
+            quittung_hinweis1: "Reklamationen innert 10 Tagen nach Abholung".into(),
+            quittung_hinweis2: "Kundenexemplar · Kartensatz und Gebühr erscheinen hier nie.".into(),
         }
     }
 }
@@ -67,6 +74,8 @@ pub fn einstellungen_lesen(conn: &Connection) -> Result<Einstellungen, Einstellu
         geschaeft_web: lesen(conn, "geschaeft_web", &d.geschaeft_web)?,
         kartensatz_a: lesen(conn, "kartensatz_a", &d.kartensatz_a.to_string())?.parse().unwrap_or(d.kartensatz_a),
         kartensatz_b: lesen(conn, "kartensatz_b", &d.kartensatz_b.to_string())?.parse().unwrap_or(d.kartensatz_b),
+        quittung_hinweis1: lesen(conn, "quittung_hinweis1", &d.quittung_hinweis1)?,
+        quittung_hinweis2: lesen(conn, "quittung_hinweis2", &d.quittung_hinweis2)?,
     })
 }
 
@@ -96,6 +105,8 @@ pub fn einstellungen_speichern(conn: &Connection, e: &Einstellungen) -> Result<(
     schreiben(conn, "geschaeft_web", e.geschaeft_web.trim())?;
     schreiben(conn, "kartensatz_a", &e.kartensatz_a.to_string())?;
     schreiben(conn, "kartensatz_b", &e.kartensatz_b.to_string())?;
+    schreiben(conn, "quittung_hinweis1", e.quittung_hinweis1.trim())?;
+    schreiben(conn, "quittung_hinweis2", e.quittung_hinweis2.trim())?;
     Ok(())
 }
 
@@ -129,12 +140,15 @@ mod tests {
             geschaeft_web: "example.ch".into(),
             kartensatz_a: 1.8,
             kartensatz_b: 2.9,
+            quittung_hinweis1: "Hinweis 1".into(),
+            quittung_hinweis2: "Hinweis 2".into(),
         };
         einstellungen_speichern(&conn, &neu).unwrap();
         let gelesen = einstellungen_lesen(&conn).unwrap();
         assert_eq!(gelesen.geschaeft_name, "Neuer Name");
         assert_eq!(gelesen.kartensatz_a, 1.8);
         assert_eq!(gelesen.kartensatz_b, 2.9);
+        assert_eq!(gelesen.quittung_hinweis1, "Hinweis 1");
     }
 
     #[test]

@@ -168,6 +168,17 @@ pub fn einstellungen_speichern(zustand: State<AppZustand>, eingabe: Einstellunge
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub fn datei_als_tabelle_lesen(pfad: String) -> Antwort<Vec<Vec<String>>> {
+    crate::datei::datei_als_tabelle_lesen(&pfad)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn stunden_fuer_treuhand_exportieren(zustand: State<AppZustand>, jahr: i32, monat: u32) -> Antwort<String> {
+    let conn = verbindung_sperren(&zustand);
+    sicherung::stunden_fuer_treuhand_exportieren(&conn, jahr, monat).map(|p| p.display().to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn alle_stunden(zustand: State<AppZustand>, jahr: i32, monat: u32) -> Antwort<Vec<StundenEintrag>> {
     let conn = verbindung_sperren(&zustand);
     stunden::alle_stunden(&conn, jahr, monat).map_err(|e| e.to_string())

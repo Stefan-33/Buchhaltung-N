@@ -38,3 +38,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Datenbankdatei und die automatische Sicherung.
 dirs = "5"
 thiserror = "1"
+# Liest Excel-Dateien (.xlsx/.xls) und CSV fuer den datei-basierten Import
+# (Kunden/Stunden) - "dates": damit Datum/Uhrzeit-Zellen als echtes Datum
+# statt als rohe Excel-Seriennummer ankommen.
+calamine = { version = "0.30.1", features = ["dates"] }
