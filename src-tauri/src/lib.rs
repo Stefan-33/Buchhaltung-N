@@ -74,12 +74,15 @@ pub fn run() {
             commands::stunden_fuer_treuhand_exportieren,
             commands::ausgaben_kategorien,
             commands::ausgabe_erfassen,
+            commands::ausgaben_importieren,
             commands::ausgaben_eines_jahres,
             commands::ausgabe_loeschen,
             commands::beleg_oeffnen,
             commands::treuhand_bericht_exportieren,
             commands::lohnabrechnung_exportieren,
             commands::quittung_als_pdf_oeffnen,
+            commands::quittung_logo_setzen,
+            commands::quittung_logo_entfernen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

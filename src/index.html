@@ -306,6 +306,9 @@
         </div>
         <div class="abschnitt">
           <h3 style="margin-top:0">Ausgabe erfassen</h3>
+          <div class="knopfreihe" style="margin-top:0">
+            <button type="button" class="knopf" id="thImportKnopf">Ausgaben importieren (Excel/CSV)…</button>
+          </div>
           <div class="zeit-erfassen-zeile">
             <label class="feld" style="margin-top:0"><span>Datum</span><input id="th-datum" type="date"></label>
             <label class="feld" style="margin-top:0"><span>Kategorie</span><select id="th-kategorie"></select></label>
@@ -559,6 +562,35 @@
       <button type="button" class="knopf knopf-voll" id="ma-anlegen">Anlegen</button>
     </div>
   </form>
+</dialog>
+
+<!-- ============ AUSGABEN IMPORTIEREN (Dialog) ============ -->
+<dialog id="ausgabenImportDialog" class="dialog">
+  <div class="dialog-karte dialog-karte-breit">
+    <h2>Ausgaben importieren</h2>
+    <p class="login-hinweis" style="margin-top:0">
+      Aus der bestehenden Treuhand-Excel die Tabelle markieren, kopieren (Strg+C) und
+      hier unten einfügen (Strg+V) — am liebsten mit Kopfzeile (z. B. Datum, Kategorie,
+      Betrag, Notiz). Die Reihenfolge der Spalten ist egal, sie wird automatisch erkannt.
+      Fehlt eine Kopfzeile, wird genau diese Reihenfolge angenommen. Die Kategorie muss
+      einer der bestehenden Kategorien entsprechen (z. B. "Büro" wird automatisch zu
+      "Büromaterialien" zugeordnet) — nicht erkannte Zeilen werden übersprungen und unten
+      aufgelistet, damit du sie in der Excel korrigieren kannst.
+    </p>
+    <div class="knopfreihe" style="margin-top:0">
+      <button type="button" class="knopf" id="thi-datei">Excel-/CSV-Datei auswählen…</button>
+    </div>
+    <textarea id="thi-text" class="textarea-eingabe" rows="6" placeholder="Hier einfügen…"></textarea>
+    <label class="schalter" style="margin-top:10px">
+      <input type="checkbox" id="thi-kopfzeile"> Erste Zeile ist Kopfzeile (wird nicht importiert)
+    </label>
+    <div id="thi-vorschau"></div>
+    <p id="thi-fehler" class="login-fehler" hidden></p>
+    <div class="knopfreihe" style="justify-content:flex-end">
+      <button type="button" class="knopf" id="thi-abbrechen">Schliessen</button>
+      <button type="button" class="knopf knopf-voll" id="thi-importieren" disabled>Importieren</button>
+    </div>
+  </div>
 </dialog>
 
 <script src="app.js"></script>

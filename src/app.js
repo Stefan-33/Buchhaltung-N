@@ -1682,6 +1682,199 @@
       .catch(function (e) { echo.textContent = ""; elFehler.textContent = fehlerText(e); elFehler.hidden = false; });
   });
 
+  // ================= AUSGABEN IMPORTIEREN =================
+  // Fuer Stefans bestehende Treuhand-Excel: dieselben Zerlege-/Datei-
+  // Hilfsfunktionen wie beim Kunden-/Stunden-Import (kiZeilenAufteilen,
+  // kiTrennzeichenErkennen, kiZeileSpalten, dateiFuerImportLesen,
+  // kiTextNormalisieren, stiDatumNormalisieren), nur mit eigener
+  // Spalten-/Kategorie-Erkennung.
+  var elThiDialog = document.getElementById("ausgabenImportDialog");
+  var elThiText = document.getElementById("thi-text");
+  var elThiKopfzeile = document.getElementById("thi-kopfzeile");
+  var elThiVorschau = document.getElementById("thi-vorschau");
+  var elThiFehler = document.getElementById("thi-fehler");
+  var elThiImportierenKnopf = document.getElementById("thi-importieren");
+  var thiGueltigeEintraege = [];
+  var thiKategorienGeladen = [];
+  var thiKopfzeileErkannt = false;
+
+  var THI_FELD_SYNONYME = {
+    datum: ["datum", "tag"],
+    kategorie: ["kategorie", "art", "grund", "rubrik", "bereich"],
+    betrag: ["betrag", "kosten", "chf", "ausgabe", "summe", "preis"],
+    notiz: ["notiz", "bemerkung", "anmerkung", "beschreibung", "text"],
+  };
+  // Hilft bei Kategorien, die inhaltlich passen, aber nicht wortgleich mit
+  // der festen Kategorie-Liste sind (z. B. "Lohn" -> "Mitarbeiterin").
+  var THI_KATEGORIE_SYNONYME = {
+    "Mitarbeiterin": ["lohn", "personal", "angestellte", "mitarbeiter"],
+    "Telefon": ["handy", "internet", "mobile", "natel", "swisscom"],
+    "Miete / Strom": ["miete", "strom", "nebenkosten", "energie"],
+    "Auto": ["benzin", "fahrzeug", "tanken", "garage"],
+    "Kleinmaterial / Atelier": ["stoff", "naehmaterial", "garn", "zubehoer"],
+    "Einrichten / Investition": ["investition", "maschine", "einrichtung", "moebel"],
+    "Reparaturen / Service Arbeitsgeräte": ["reparatur", "service", "wartung"],
+    "Büromaterialien": ["buero", "papier", "drucker"],
+    "Werbung": ["werbung", "inserat", "marketing"],
+  };
+
+  function thiKopfzeileZuordnen(spalten) {
+    var zuordnung = {};
+    spalten.forEach(function (roh, i) {
+      var text = kiTextNormalisieren(roh);
+      if (!text) return;
+      Object.keys(THI_FELD_SYNONYME).forEach(function (feld) {
+        if (zuordnung[feld] !== undefined) return;
+        if (THI_FELD_SYNONYME[feld].some(function (s) { return text.indexOf(s) !== -1; })) {
+          zuordnung[feld] = i;
+        }
+      });
+    });
+    return zuordnung;
+  }
+
+  // Findet die passende Kategorie aus der festen Liste (ausgaben_kategorien) -
+  // zuerst wortgleich, dann als Teilstring in beide Richtungen, zuletzt ueber
+  // die Synonym-Liste oben. Kein eindeutiger Treffer -> null (Zeile wird in
+  // der Vorschau als unbekannt markiert und beim Import uebersprungen).
+  function thiKategoriePassend(text) {
+    var norm = kiTextNormalisieren(text);
+    if (!norm) return null;
+    var treffer = thiKategorienGeladen.filter(function (k) { return kiTextNormalisieren(k) === norm; });
+    if (treffer.length === 1) return treffer[0];
+    treffer = thiKategorienGeladen.filter(function (k) {
+      var kn = kiTextNormalisieren(k);
+      return kn.indexOf(norm) !== -1 || norm.indexOf(kn) !== -1;
+    });
+    if (treffer.length === 1) return treffer[0];
+    treffer = thiKategorienGeladen.filter(function (k) {
+      var synonyme = THI_KATEGORIE_SYNONYME[k];
+      return synonyme && synonyme.some(function (s) { return norm.indexOf(s) !== -1; });
+    });
+    return treffer.length === 1 ? treffer[0] : null;
+  }
+
+  // Versteht sowohl "1234.50" als auch Schweizer/Excel-Schreibweisen wie
+  // "1'234.50" oder "1234,50" (Komma als Dezimaltrennzeichen).
+  function thiBetragNormalisieren(s) {
+    s = String(s || "").trim().replace(/[^0-9.,\-]/g, "");
+    if (!s) return NaN;
+    var hatKomma = s.indexOf(",") !== -1, hatPunkt = s.indexOf(".") !== -1;
+    if (hatKomma && hatPunkt) {
+      s = s.lastIndexOf(",") > s.lastIndexOf(".") ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
+    } else if (hatKomma) {
+      s = s.replace(",", ".");
+    }
+    var n = Number(s);
+    return isFinite(n) ? n : NaN;
+  }
+
+  function thiEintraegeBauen(tabelle, zuordnung, kopfzeileUeberspringen) {
+    var zeilen = kopfzeileUeberspringen ? tabelle.slice(1) : tabelle;
+    var hatZuordnung = Object.keys(zuordnung).length > 0;
+    var di = hatZuordnung ? zuordnung.datum : 0;
+    var ki = hatZuordnung ? zuordnung.kategorie : 1;
+    var bi = hatZuordnung ? zuordnung.betrag : 2;
+    var ni = hatZuordnung ? zuordnung.notiz : 3;
+    return zeilen.map(function (spalten) {
+      var kategorieRoh = ki !== undefined ? spalten[ki] : "";
+      return {
+        datum: stiDatumNormalisieren(di !== undefined ? spalten[di] : ""),
+        kategorie_roh: String(kategorieRoh || "").trim(),
+        kategorie: thiKategoriePassend(kategorieRoh),
+        betrag: thiBetragNormalisieren(bi !== undefined ? spalten[bi] : ""),
+        notiz: String((ni !== undefined ? spalten[ni] : "") || "").trim(),
+      };
+    });
+  }
+
+  function thiVorschauZeichnen(kopfzeileCheckboxVonHand) {
+    var zeilen = kiZeilenAufteilen(elThiText.value);
+    if (!zeilen.length) {
+      elThiVorschau.innerHTML = "";
+      elThiImportierenKnopf.disabled = true;
+      thiGueltigeEintraege = [];
+      return;
+    }
+    var trenner = kiTrennzeichenErkennen(zeilen[0]);
+    var tabelle = zeilen.map(function (z) { return kiZeileSpalten(z, trenner); });
+    var zuordnung = thiKopfzeileZuordnen(tabelle[0]);
+    // Mindestens Datum, Kategorie und Betrag erkannt -> das ist eine Kopfzeile.
+    thiKopfzeileErkannt = ["datum", "kategorie", "betrag"].filter(function (f) { return zuordnung[f] !== undefined; }).length >= 2;
+    // Nur automatisch setzen, wenn nicht gerade von Hand umgeschaltet wurde -
+    // sonst wuerde jeder Tastendruck die manuelle Wahl sofort ueberschreiben.
+    if (!kopfzeileCheckboxVonHand) elThiKopfzeile.checked = thiKopfzeileErkannt;
+
+    var eintraege = thiEintraegeBauen(tabelle, zuordnung, elThiKopfzeile.checked);
+    thiGueltigeEintraege = eintraege.filter(function (e) { return e.datum && e.kategorie && e.betrag > 0; });
+    var ungueltig = eintraege.length - thiGueltigeEintraege.length;
+
+    var zeilenHtml = eintraege.slice(0, 50).map(function (e) {
+      var gueltig = e.datum && e.kategorie && e.betrag > 0;
+      var klasse = gueltig ? "" : ' class="zeile-uebersprungen"';
+      var kategorieAnzeige = e.kategorie || (e.kategorie_roh ? "? " + escapeHtml(e.kategorie_roh) : "–");
+      return "<tr" + klasse + "><td>" + escapeHtml(e.datum || "–") + "</td><td>" + escapeHtml(kategorieAnzeige) + '</td><td class="re">' +
+        (e.betrag > 0 ? chf(e.betrag) : "–") + "</td><td>" + escapeHtml(e.notiz) + "</td></tr>";
+    }).join("");
+    var mehrHinweis = eintraege.length > 50 ? " (zeigt die ersten 50 von " + eintraege.length + ")" : "";
+    var hinweisKopf = thiKopfzeileErkannt
+      ? "Kopfzeile erkannt – Spalten automatisch zugeordnet."
+      : "Keine Kopfzeile erkannt – Reihenfolge Datum, Kategorie, Betrag, Notiz angenommen.";
+
+    elThiVorschau.innerHTML =
+      '<div class="import-zusammenfassung">' + hinweisKopf + " " + thiGueltigeEintraege.length + " Einträge werden importiert" +
+      (ungueltig ? ", " + ungueltig + " mit fehlendem Datum/Betrag oder unbekannter Kategorie werden übersprungen (mit „?“ markiert)" : "") +
+      mehrHinweis + "</div>" +
+      '<div class="tabellenrahmen"><table class="auflistung"><thead><tr>' +
+      "<th>Datum</th><th>Kategorie</th><th class=\"re\">Betrag</th><th>Notiz</th>" +
+      "</tr></thead><tbody>" + zeilenHtml + "</tbody></table></div>";
+
+    elThiImportierenKnopf.disabled = thiGueltigeEintraege.length === 0;
+  }
+
+  document.getElementById("thImportKnopf").addEventListener("click", function () {
+    elThiText.value = "";
+    elThiVorschau.innerHTML = "";
+    elThiFehler.hidden = true;
+    elThiKopfzeile.checked = false;
+    elThiImportierenKnopf.disabled = true;
+    thiGueltigeEintraege = [];
+    var weiter = function () { elThiDialog.showModal(); elThiText.focus(); };
+    if (thiKategorienGeladen.length) {
+      weiter();
+    } else {
+      invoke("ausgaben_kategorien").then(function (k) { thiKategorienGeladen = k; weiter(); }).catch(weiter);
+    }
+  });
+  document.getElementById("thi-abbrechen").addEventListener("click", function () { elThiDialog.close(); });
+  elThiText.addEventListener("input", debounce(function () { thiVorschauZeichnen(false); }, 150));
+  elThiKopfzeile.addEventListener("change", function () { thiVorschauZeichnen(true); });
+  document.getElementById("thi-datei").addEventListener("click", function () {
+    elThiFehler.hidden = true;
+    dateiFuerImportLesen(
+      elThiText,
+      thiVorschauZeichnen,
+      function (meldung) { elThiFehler.textContent = meldung; elThiFehler.hidden = false; }
+    );
+  });
+
+  document.getElementById("thi-importieren").addEventListener("click", function () {
+    if (!thiGueltigeEintraege.length) return;
+    var eingaben = thiGueltigeEintraege.map(function (e) {
+      return { datum: e.datum, kategorie: e.kategorie, betrag: e.betrag, notiz: e.notiz, beleg_quelle: null };
+    });
+    elThiFehler.hidden = true;
+    knopfSperren(elThiImportierenKnopf, true);
+    invoke("ausgaben_importieren", { eingaben: eingaben })
+      .then(function (anzahl) {
+        elThiDialog.close();
+        thJahrLaden();
+        alert(anzahl + (anzahl === 1 ? " Ausgabe wurde importiert." : " Ausgaben wurden importiert."));
+      })
+      .catch(function (e) { elThiFehler.textContent = fehlerText(e); elThiFehler.hidden = false; })
+      .finally(function () { knopfSperren(elThiImportierenKnopf, false); });
+  });
+
   // ================= EINSTELLUNGEN =================
   function einstellungenFormularFuellen() {
     document.getElementById("ei-geschaeft-name").value = aktuelleEinstellungen.geschaeft_name;

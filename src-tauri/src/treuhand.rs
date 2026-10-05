@@ -115,6 +115,31 @@ pub fn ausgabe_erfassen(conn: &Connection, eingabe: &NeueAusgabe) -> Result<Ausg
     Ok(conn.query_row(&sql, [id], zeile_zu_ausgabe)?)
 }
 
+/// Fuer den Excel-/CSV-Import (Stefans bisherige Treuhand-Tabelle). Eine
+/// Zeile ohne Datum, mit unbekannter Kategorie oder ungueltigem Betrag
+/// wird uebersprungen statt den ganzen Import abzubrechen - das Frontend
+/// zeigt solche Zeilen schon in der Vorschau als uebersprungen an, hier
+/// nochmals zur Sicherheit, falls doch eine durchrutscht. Beleg-Dateien
+/// gehoeren nicht zu einem Tabellen-Import (kein Dateipfad in Excel) und
+/// werden hier bewusst nicht beruecksichtigt.
+pub fn ausgaben_importieren(conn: &mut Connection, eingaben: Vec<NeueAusgabe>) -> Result<usize, TreuhandFehler> {
+    let tx = conn.transaction()?;
+    let mut angelegt = 0usize;
+    for eingabe in eingaben {
+        let datum = eingabe.datum.trim();
+        if datum.is_empty() || !AUSGABEN_KATEGORIEN.contains(&eingabe.kategorie.as_str()) || !(eingabe.betrag > 0.0) {
+            continue;
+        }
+        tx.execute(
+            "INSERT INTO ausgaben (datum, kategorie, betrag, notiz) VALUES (?1, ?2, ?3, ?4)",
+            params![datum, eingabe.kategorie, eingabe.betrag, eingabe.notiz.trim()],
+        )?;
+        angelegt += 1;
+    }
+    tx.commit()?;
+    Ok(angelegt)
+}
+
 pub fn ausgaben_eines_jahres(conn: &Connection, jahr: i32) -> Result<Vec<Ausgabe>, TreuhandFehler> {
     let sql = format!("SELECT {AUSGABE_SPALTEN} FROM ausgaben WHERE strftime('%Y', datum) = ?1 ORDER BY datum, id");
     let mut stmt = conn.prepare(&sql)?;
@@ -281,6 +306,21 @@ mod tests {
         let conn = test_db();
         let ergebnis = ausgabe_erfassen(&conn, &ausgabe("2026-01-05", "Telefon", 0.0));
         assert!(matches!(ergebnis, Err(TreuhandFehler::UngueltigerBetrag)));
+    }
+
+    #[test]
+    fn ausgaben_importieren_ueberspringt_ungueltige_zeilen_statt_abzubrechen() {
+        let mut conn = test_db();
+        let eingaben = vec![
+            ausgabe("2026-01-05", "Telefon", 50.0),
+            ausgabe("2026-01-06", "Urlaub", 10.0), // unbekannte Kategorie
+            ausgabe("", "Telefon", 10.0),           // kein Datum
+            ausgabe("2026-01-07", "Auto", 0.0),     // ungueltiger Betrag
+            ausgabe("2026-01-08", "AHV", 30.0),
+        ];
+        let angelegt = ausgaben_importieren(&mut conn, eingaben).unwrap();
+        assert_eq!(angelegt, 2);
+        assert_eq!(ausgaben_eines_jahres(&conn, 2026).unwrap().len(), 2);
     }
 
     #[test]

@@ -225,6 +225,12 @@ pub fn ausgabe_erfassen(zustand: State<AppZustand>, eingabe: NeueAusgabe) -> Ant
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub fn ausgaben_importieren(zustand: State<AppZustand>, eingaben: Vec<NeueAusgabe>) -> Antwort<usize> {
+    let mut conn = verbindung_sperren(&zustand);
+    treuhand::ausgaben_importieren(&mut conn, eingaben).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn ausgaben_eines_jahres(zustand: State<AppZustand>, jahr: i32) -> Antwort<Vec<Ausgabe>> {
     let conn = verbindung_sperren(&zustand);
     treuhand::ausgaben_eines_jahres(&conn, jahr).map_err(|e| e.to_string())
