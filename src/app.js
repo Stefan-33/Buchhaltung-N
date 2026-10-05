@@ -857,7 +857,11 @@
       '<button type="button" class="knopf knopf-voll" id="abschliessenKnopf"' + (summe <= 0 ? " disabled" : "") + ">Auftrag abschliessen &amp; Beleg</button>" +
       '<span id="fertigFehler" class="fehler"></span>' +
       "</div>" +
-      (letzteQuittung ? quittungHtml(letzteQuittung, k) + '<div class="knopfreihe"><button type="button" class="knopf" id="druckenKnopf">Beleg drucken</button></div>' : "") +
+      (letzteQuittung
+        ? quittungHtml(letzteQuittung, k) +
+          '<div class="knopfreihe"><button type="button" class="knopf" id="druckenKnopf">Beleg drucken</button>' +
+          '<span id="druckenFehler" class="fehler" hidden></span></div>'
+        : "") +
       "</div>" +
       '<div class="abschnitt"><h3>Bisher bei uns</h3>' +
       (verlaufZeilen
@@ -952,8 +956,25 @@
       });
     }
 
+    // Beleg als PDF statt ueber window.print(): der native Windows-
+    // Druckdialog fuegt sonst eine Kopf-/Fusszeile (Datum, Seitentitel,
+    // "tauri.localhost", Seitenzahl) hinzu, die sich von hier aus nicht
+    // abschalten laesst (siehe quittung.rs). Das PDF wird direkt mit dem
+    // Standardprogramm des PCs geoeffnet, von dort druckt man ganz normal.
     var drucken = document.getElementById("druckenKnopf");
-    if (drucken) drucken.addEventListener("click", function () { window.print(); });
+    if (drucken) {
+      drucken.addEventListener("click", function () {
+        var fehlerEl = document.getElementById("druckenFehler");
+        if (fehlerEl) fehlerEl.hidden = true;
+        knopfSperren(drucken, true);
+        invoke("quittung_als_pdf_oeffnen", { auftrag: letzteQuittung, kunde: aktuellerKunde })
+          .catch(function (e) {
+            if (fehlerEl) { fehlerEl.textContent = fehlerText(e); fehlerEl.hidden = false; }
+            else alert(fehlerText(e));
+          })
+          .finally(function () { knopfSperren(drucken, false); });
+      });
+    }
   }
 
   // ================= EXPORT-VORSCHAU =================
@@ -1505,67 +1526,6 @@
   });
   document.getElementById("mitarbeiterinFormular").querySelectorAll("input").forEach(function (f) {
     f.addEventListener("keydown", enterLoest(function () { elMaKnopf.click(); }));
-  });
-
-  // ================= ZWEITES KONTO ANLEGEN =================
-  // Fuer einen zweiten vollwertigen Zugang (z.B. Mama) - nutzt dieselbe
-  // Rolle "inhaber" wie das erste Konto, siehe zweites_konto_anlegen in
-  // commands.rs. Bewusst kein Bearbeiten/Loeschen hier - das ist ein
-  // seltener, bewusster Schritt, kein laufend gepflegtes Profil.
-  var elZkDialog = document.getElementById("zweitesKontoDialog");
-  var elZkFehler = document.getElementById("zk-fehler");
-  var elZkErfolg = document.getElementById("zk-erfolg");
-  var elZkKnopf = document.getElementById("zk-anlegen");
-
-  document.getElementById("zweitesKontoKnopf").addEventListener("click", function () {
-    document.getElementById("zweitesKontoFormular").reset();
-    elZkFehler.hidden = true;
-    elZkErfolg.hidden = true;
-    elZkDialog.showModal();
-    document.getElementById("zk-anzeigename").focus();
-  });
-  document.getElementById("zk-abbrechen").addEventListener("click", function () { elZkDialog.close(); });
-
-  elZkKnopf.addEventListener("click", function () {
-    elZkFehler.hidden = true;
-    elZkErfolg.hidden = true;
-    var anzeigename = document.getElementById("zk-anzeigename").value.trim();
-    var benutzername = document.getElementById("zk-benutzername").value.trim();
-    var passwort = document.getElementById("zk-passwort").value;
-    var passwort2 = document.getElementById("zk-passwort2").value;
-
-    if (!anzeigename || !benutzername || !passwort || !passwort2) {
-      elZkFehler.textContent = "Bitte alle Felder ausfüllen.";
-      elZkFehler.hidden = false;
-      return;
-    }
-    if (passwort !== passwort2) {
-      elZkFehler.textContent = "Die beiden Passwörter stimmen nicht überein.";
-      elZkFehler.hidden = false;
-      return;
-    }
-    if (passwort.length < 6) {
-      elZkFehler.textContent = "Mindestens 6 Zeichen.";
-      elZkFehler.hidden = false;
-      return;
-    }
-
-    knopfSperren(elZkKnopf, true);
-    invoke("zweites_konto_anlegen", { benutzername: benutzername, anzeigename: anzeigename, passwort: passwort })
-      .then(function () {
-        elZkErfolg.textContent = "Angelegt. Zum Anmelden: Benutzername „" + benutzername + "“ und das eben vergebene Passwort.";
-        elZkErfolg.hidden = false;
-        document.getElementById("zk-passwort").value = "";
-        document.getElementById("zk-passwort2").value = "";
-      })
-      .catch(function (e) {
-        elZkFehler.textContent = fehlerText(e);
-        elZkFehler.hidden = false;
-      })
-      .finally(function () { knopfSperren(elZkKnopf, false); });
-  });
-  document.getElementById("zweitesKontoFormular").querySelectorAll("input").forEach(function (f) {
-    f.addEventListener("keydown", enterLoest(function () { elZkKnopf.click(); }));
   });
 
   // ================= TREUHAND =================

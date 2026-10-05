@@ -84,7 +84,11 @@ pub struct NeuerAuftrag {
     pub posten: Vec<Posten>,
 }
 
-#[derive(Debug, Serialize)]
+// Auch Deserialize: die Oberflaeche schickt einen bereits geladenen
+// Auftrag zurueck an Rust, um daraus die Quittung als PDF zu erzeugen
+// (siehe quittung.rs) - ohne ihn ein zweites Mal aus der Datenbank holen
+// zu muessen.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Auftrag {
     pub id: i64,
     pub rechnungsnummer: i64,

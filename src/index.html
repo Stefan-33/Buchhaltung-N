@@ -287,17 +287,6 @@
             <button class="knopf knopf-voll" id="mitarbeiterinAnlegenKnopf">+ Mitarbeiterin anlegen</button>
           </div>
         </div>
-
-        <div class="abschnitt">
-          <h3>Zweites Konto</h3>
-          <p style="margin-top:0;font-size:14px;color:var(--tinte-2);max-width:60ch;">
-            Ein zweiter vollwertiger Zugang mit denselben Rechten wie dieser hier (z. B. für Mama) —
-            nicht für eine Mitarbeiterin gedacht, dafür gibt es "Mitarbeiterin anlegen" oben.
-          </p>
-          <div class="knopfreihe">
-            <button class="knopf knopf-voll" id="zweitesKontoKnopf">+ Zweites Konto anlegen</button>
-          </div>
-        </div>
       </div>
     </section>
 
@@ -564,23 +553,6 @@
     <div class="knopfreihe" style="justify-content:flex-end">
       <button type="button" class="knopf" id="ma-abbrechen">Schliessen</button>
       <button type="button" class="knopf knopf-voll" id="ma-anlegen">Anlegen</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- ============ ZWEITES KONTO ANLEGEN (Dialog) ============ -->
-<dialog id="zweitesKontoDialog" class="dialog">
-  <form id="zweitesKontoFormular" method="dialog" class="dialog-karte">
-    <h2>Zweites Konto anlegen</h2>
-    <label class="feld"><span>Anzeigename</span><input id="zk-anzeigename"></label>
-    <label class="feld"><span>Benutzername (zum Anmelden)</span><input id="zk-benutzername" autocomplete="off"></label>
-    <label class="feld"><span>Passwort (mind. 6 Zeichen)</span><input id="zk-passwort" type="password" autocomplete="new-password"></label>
-    <label class="feld"><span>Passwort wiederholen</span><input id="zk-passwort2" type="password" autocomplete="new-password"></label>
-    <p id="zk-fehler" class="login-fehler" hidden></p>
-    <p id="zk-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
-    <div class="knopfreihe" style="justify-content:flex-end">
-      <button type="button" class="knopf" id="zk-abbrechen">Schliessen</button>
-      <button type="button" class="knopf knopf-voll" id="zk-anlegen">Anlegen</button>
     </div>
   </form>
 </dialog>

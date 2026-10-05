@@ -4,6 +4,7 @@ mod datei;
 mod db;
 mod einstellungen;
 mod geschaeft;
+mod quittung;
 mod sicherung;
 mod stunden;
 mod treuhand;
@@ -77,6 +78,7 @@ pub fn run() {
             commands::ausgabe_loeschen,
             commands::treuhand_bericht_exportieren,
             commands::lohnabrechnung_exportieren,
+            commands::quittung_als_pdf_oeffnen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

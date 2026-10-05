@@ -5,6 +5,7 @@
 use crate::auth::{self, Benutzer, NeueMitarbeiterin};
 use crate::einstellungen::{self, Einstellungen};
 use crate::geschaeft::{self, Auftrag, KundeBearbeiten, Kunde, NeuerAuftrag, NeuerKunde};
+use crate::quittung;
 use crate::sicherung;
 use crate::stunden::{self, StundenEintrag};
 use crate::treuhand::{self, Ausgabe, NeueAusgabe};
@@ -245,4 +246,13 @@ pub fn treuhand_bericht_exportieren(zustand: State<AppZustand>, jahr: i32) -> An
 pub fn lohnabrechnung_exportieren(zustand: State<AppZustand>, benutzer_id: i64, jahr: i32, monat: u32) -> Antwort<String> {
     let conn = verbindung_sperren(&zustand);
     treuhand::lohnabrechnung_exportieren(&conn, benutzer_id, jahr, monat).map(|p| p.display().to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn quittung_als_pdf_oeffnen(zustand: State<AppZustand>, auftrag: Auftrag, kunde: Kunde) -> Antwort<String> {
+    let conn = verbindung_sperren(&zustand);
+    let einstellungen = einstellungen::einstellungen_lesen(&conn).map_err(|e| e.to_string())?;
+    let pfad = quittung::quittung_pdf_erzeugen(&auftrag, &kunde, &einstellungen)?;
+    quittung::mit_standardprogramm_oeffnen(&pfad)?;
+    Ok(pfad.display().to_string())
 }

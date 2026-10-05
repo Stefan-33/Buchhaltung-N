@@ -6,7 +6,9 @@ authors = ["you"]
 license = ""
 repository = ""
 edition = "2021"
-rust-version = "1.77.2"
+# Angehoben fuer printpdf (Quittung als PDF, siehe quittung.rs) - braucht
+# mindestens 1.88. GitHub Actions installiert ohnehin immer "stable".
+rust-version = "1.88"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -42,3 +44,8 @@ thiserror = "1"
 # (Kunden/Stunden) - "dates": damit Datum/Uhrzeit-Zellen als echtes Datum
 # statt als rohe Excel-Seriennummer ankommen.
 calamine = { version = "0.30.1", features = ["dates"] }
+# Erzeugt die Quittung als eigenstaendiges PDF (quittung.rs) statt nur
+# ueber window.print() - der native Windows-Druckdialog fuegt dort eine
+# Kopf-/Fusszeile (Datum, Seitentitel, URL, Seitenzahl) hinzu, die sich
+# nicht abschalten laesst; ein selbst erzeugtes PDF hat so etwas nicht.
+printpdf = { version = "0.12.8", features = ["html"] }
