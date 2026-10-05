@@ -1538,25 +1538,30 @@
   var elThListe = document.getElementById("thListe");
   var elThKategorie = document.getElementById("th-kategorie");
   var elThFehler = document.getElementById("th-fehler");
+  var elThBelegName = document.getElementById("th-beleg-name");
   var thKategorienGeladen = false;
+  var thBelegQuelle = null; // Pfad der ausgewaehlten Beleg-Datei, bis zum naechsten Erfassen/Zuruecksetzen
 
   function thJahrLaden() {
     document.getElementById("thJahrTitel").textContent = "Jahr " + thJahr;
     invoke("ausgaben_eines_jahres", { jahr: thJahr })
       .then(thListeZeichnen)
-      .catch(function (e) { elThListe.innerHTML = '<tr><td colspan="5" class="leer">' + fehlerText(e) + "</td></tr>"; });
+      .catch(function (e) { elThListe.innerHTML = '<tr><td colspan="6" class="leer">' + fehlerText(e) + "</td></tr>"; });
   }
 
   function thListeZeichnen(ausgaben) {
     if (!ausgaben.length) {
-      elThListe.innerHTML = '<tr><td colspan="5" class="leer">Noch keine Ausgaben erfasst.</td></tr>';
+      elThListe.innerHTML = '<tr><td colspan="6" class="leer">Noch keine Ausgaben erfasst.</td></tr>';
       return;
     }
     elThListe.innerHTML = ausgaben
       .map(function (a) {
+        var beleg = a.beleg_pfad
+          ? '<button type="button" class="knopf" data-beleg="' + escapeHtml(a.beleg_pfad) + '" style="font-size:12px;padding:3px 10px">📎 Beleg</button>'
+          : "";
         return "<tr><td>" + datumKurz(a.datum) + "</td><td>" + escapeHtml(a.kategorie) + '</td><td class="re">' +
-          chf(a.betrag) + "</td><td>" + escapeHtml(a.notiz) + '</td><td><button type="button" class="weg" data-id="' +
-          a.id + '" title="Ausgabe löschen">×</button></td></tr>';
+          chf(a.betrag) + "</td><td>" + escapeHtml(a.notiz) + "</td><td>" + beleg +
+          '</td><td><button type="button" class="weg" data-id="' + a.id + '" title="Ausgabe löschen">×</button></td></tr>';
       })
       .join("");
     elThListe.querySelectorAll("button[data-id]").forEach(function (btn) {
@@ -1564,6 +1569,11 @@
         invoke("ausgabe_loeschen", { id: Number(btn.getAttribute("data-id")) })
           .then(thJahrLaden)
           .catch(function (e) { alert(fehlerText(e)); });
+      });
+    });
+    elThListe.querySelectorAll("button[data-beleg]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        invoke("beleg_oeffnen", { pfad: btn.getAttribute("data-beleg") }).catch(function (e) { alert(fehlerText(e)); });
       });
     });
   }
@@ -1597,6 +1607,25 @@
   document.getElementById("thNachKnopf").addEventListener("click", function () { thJahr += 1; thJahrLaden(); });
   document.getElementById("thZurueckKnopf").addEventListener("click", function () { thJahr = new Date().getFullYear(); thJahrLaden(); });
 
+  // Beleg (Foto/Scan/PDF der Quittung) ueber denselben nativen Datei-
+  // Dialog wie beim Kunden-/Stunden-Import auswaehlen - der Pfad wird erst
+  // beim Erfassen mitgeschickt, die Datei landet dann serverseitig im
+  // Sicherungsordner (siehe treuhand.rs).
+  document.getElementById("th-beleg-waehlen").addEventListener("click", function () {
+    if (!window.__TAURI__.dialog || !window.__TAURI__.dialog.open) {
+      elThFehler.textContent = "Dateiauswahl ist in dieser Programmversion nicht verfügbar.";
+      elThFehler.hidden = false;
+      return;
+    }
+    window.__TAURI__.dialog
+      .open({ multiple: false, filters: [{ name: "Beleg", extensions: ["jpg", "jpeg", "png", "pdf"] }] })
+      .then(function (pfad) {
+        if (!pfad) return; // Dialog abgebrochen
+        thBelegQuelle = pfad;
+        elThBelegName.textContent = pfad.split(/[\\/]/).pop();
+      });
+  });
+
   document.getElementById("th-erfassen").addEventListener("click", function () {
     elThFehler.hidden = true;
     var eingabe = {
@@ -1604,6 +1633,7 @@
       kategorie: elThKategorie.value,
       betrag: Number(document.getElementById("th-betrag").value),
       notiz: document.getElementById("th-notiz").value.trim(),
+      beleg_quelle: thBelegQuelle,
     };
     if (!eingabe.datum || !(eingabe.betrag > 0)) {
       elThFehler.textContent = "Bitte Datum und einen Betrag grösser als 0 eingeben.";
@@ -1616,6 +1646,8 @@
       .then(function () {
         document.getElementById("th-betrag").value = "";
         document.getElementById("th-notiz").value = "";
+        thBelegQuelle = null;
+        elThBelegName.textContent = "";
         thJahrLaden();
       })
       .catch(function (e) { elThFehler.textContent = fehlerText(e); elThFehler.hidden = false; })

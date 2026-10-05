@@ -154,6 +154,18 @@ pub(crate) fn schreiben(pfad: &PathBuf, inhalt: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Oeffnet eine beliebige Datei mit dem auf dem PC hinterlegten
+/// Standardprogramm (z.B. der PDF-Betrachter fuer eine Quittung, oder
+/// das Bildprogramm fuer einen fotografierten Beleg) - ohne dass das
+/// Programm selbst wissen muss, was fuer eine Art Datei das ist.
+pub(crate) fn mit_standardprogramm_oeffnen(pfad: &std::path::Path) -> Result<(), String> {
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", &pfad.to_string_lossy()])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Datei konnte nicht geöffnet werden: {e}"))
+}
+
 /// Behaelt die letzten 60 Sicherungen (bei taeglichem Gebrauch gut zwei
 /// Monate) und loescht aeltere automatisch, damit der Ordner nicht endlos
 /// waechst. Die 10-Jahre-Aufbewahrungspflicht wird dadurch NICHT verletzt -

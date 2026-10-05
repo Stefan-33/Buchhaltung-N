@@ -159,13 +159,13 @@ fn spalte_fehlt(conn: &Connection, tabelle: &str, spalte: &str) -> rusqlite::Res
     Ok(!vorhandene_spalten.iter().any(|s| s == spalte))
 }
 
-/// Spalten, die nach dem allerersten Release zu "benutzer" dazugekommen
-/// sind - fuer das Mitarbeiterinnen-Lohnprofil (Treuhand-Lohnabrechnung).
-/// Bewusst einzeln per ALTER TABLE nachgezogen statt die Tabelle neu
-/// anzulegen, damit die bestehenden Konten (Papa, Mama, ...) erhalten
-/// bleiben.
+/// Spalten, die erst nach dem allerersten Release zu einer Tabelle
+/// dazugekommen sind. Bewusst einzeln per ALTER TABLE nachgezogen statt
+/// die Tabelle neu anzulegen, damit bestehende Zeilen (Konten, Ausgaben,
+/// ...) erhalten bleiben.
 fn migrationen_anwenden(conn: &Connection) -> rusqlite::Result<()> {
-    let neue_spalten: &[(&str, &str)] = &[
+    // Mitarbeiterinnen-Lohnprofil (Treuhand-Lohnabrechnung).
+    let benutzer_spalten: &[(&str, &str)] = &[
         ("strasse", "TEXT NOT NULL DEFAULT ''"),
         ("plz_ort", "TEXT NOT NULL DEFAULT ''"),
         ("ahv_nummer", "TEXT NOT NULL DEFAULT ''"),
@@ -175,9 +175,15 @@ fn migrationen_anwenden(conn: &Connection) -> rusqlite::Result<()> {
         // Mitarbeiterin, deren Stunden er selbst eintraegt).
         ("hat_login", "INTEGER NOT NULL DEFAULT 1"),
     ];
-    for (spalte, definition) in neue_spalten {
-        if spalte_fehlt(conn, "benutzer", spalte)? {
-            conn.execute(&format!("ALTER TABLE benutzer ADD COLUMN {spalte} {definition}"), [])?;
+    // Beleg (Foto/PDF der Quittung) zu einer Ausgabe - siehe Stefans
+    // Wunsch, beim Erfassen gleich eine Datei dazu ablegen zu koennen.
+    let ausgaben_spalten: &[(&str, &str)] = &[("beleg_pfad", "TEXT")];
+
+    for (tabelle, spalten) in [("benutzer", benutzer_spalten), ("ausgaben", ausgaben_spalten)] {
+        for (spalte, definition) in spalten {
+            if spalte_fehlt(conn, tabelle, spalte)? {
+                conn.execute(&format!("ALTER TABLE {tabelle} ADD COLUMN {spalte} {definition}"), [])?;
+            }
         }
     }
     Ok(())

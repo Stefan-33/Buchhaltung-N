@@ -76,6 +76,7 @@ pub fn run() {
             commands::ausgabe_erfassen,
             commands::ausgaben_eines_jahres,
             commands::ausgabe_loeschen,
+            commands::beleg_oeffnen,
             commands::treuhand_bericht_exportieren,
             commands::lohnabrechnung_exportieren,
             commands::quittung_als_pdf_oeffnen,

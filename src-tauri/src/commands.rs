@@ -237,6 +237,11 @@ pub fn ausgabe_loeschen(zustand: State<AppZustand>, id: i64) -> Antwort<()> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub fn beleg_oeffnen(pfad: String) -> Antwort<()> {
+    sicherung::mit_standardprogramm_oeffnen(std::path::Path::new(&pfad))
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn treuhand_bericht_exportieren(zustand: State<AppZustand>, jahr: i32) -> Antwort<String> {
     let conn = verbindung_sperren(&zustand);
     treuhand::treuhand_bericht_exportieren(&conn, jahr).map(|p| p.display().to_string())
@@ -253,6 +258,6 @@ pub fn quittung_als_pdf_oeffnen(zustand: State<AppZustand>, auftrag: Auftrag, ku
     let conn = verbindung_sperren(&zustand);
     let einstellungen = einstellungen::einstellungen_lesen(&conn).map_err(|e| e.to_string())?;
     let pfad = quittung::quittung_pdf_erzeugen(&auftrag, &kunde, &einstellungen)?;
-    quittung::mit_standardprogramm_oeffnen(&pfad)?;
+    sicherung::mit_standardprogramm_oeffnen(&pfad)?;
     Ok(pfad.display().to_string())
 }

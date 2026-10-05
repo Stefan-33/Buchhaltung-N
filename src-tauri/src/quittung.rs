@@ -121,18 +121,6 @@ pub fn quittung_pdf_erzeugen(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen
     Ok(pfad)
 }
 
-/// Oeffnet eine Datei mit dem auf dem PC hinterlegten Standardprogramm
-/// (fuer eine PDF-Datei also der PDF-Betrachter oder Edge) - von dort
-/// kann Stefan ganz normal drucken, ohne dass dabei eine zusaetzliche
-/// Kopf-/Fusszeile auftaucht.
-pub fn mit_standardprogramm_oeffnen(pfad: &std::path::Path) -> Result<(), String> {
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", &pfad.to_string_lossy()])
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("Datei konnte nicht geöffnet werden: {e}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -312,6 +312,10 @@
             <label class="feld" style="margin-top:0"><span>Betrag (CHF)</span><input id="th-betrag" type="number" step="0.01" min="0"></label>
             <label class="feld zeit-notiz" style="margin-top:0"><span>Notiz (optional)</span><input id="th-notiz"></label>
           </div>
+          <div class="knopfreihe" style="margin-top:10px">
+            <button type="button" class="knopf" id="th-beleg-waehlen">Beleg anhängen (Foto/PDF)…</button>
+            <span id="th-beleg-name" style="font-size:13px;color:var(--tinte-2)"></span>
+          </div>
           <p id="th-fehler" class="login-fehler" hidden></p>
           <div class="knopfreihe">
             <button class="knopf knopf-voll" id="th-erfassen">Erfassen</button>
@@ -321,7 +325,7 @@
           <h3>Ausgaben dieses Jahres</h3>
           <div class="tabellenrahmen">
             <table class="auflistung">
-              <thead><tr><th>Datum</th><th>Kategorie</th><th class="re">Betrag</th><th>Notiz</th><th></th></tr></thead>
+              <thead><tr><th>Datum</th><th>Kategorie</th><th class="re">Betrag</th><th>Notiz</th><th>Beleg</th><th></th></tr></thead>
               <tbody id="thListe"></tbody>
             </table>
           </div>

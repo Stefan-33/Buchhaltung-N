@@ -8,7 +8,7 @@
 use crate::sicherung::{csv_feld, schreiben, sicherungs_ordner};
 use rusqlite::{params, Connection, Row};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, thiserror::Error)]
 pub enum TreuhandFehler {
@@ -18,6 +18,8 @@ pub enum TreuhandFehler {
     UngueltigerBetrag,
     #[error("Unbekannte Kategorie")]
     UnbekannteKategorie,
+    #[error("Beleg konnte nicht gespeichert werden: {0}")]
+    Beleg(std::io::Error),
 }
 
 // Feste Kategorie-Liste, 1:1 aus Stefans bisheriger Treuhand-Excel
@@ -46,6 +48,12 @@ pub struct NeueAusgabe {
     pub betrag: f64,
     #[serde(default)]
     pub notiz: String,
+    // Pfad der vom nativen Dateidialog ausgewaehlten Beleg-Datei (Foto/
+    // Scan/PDF der Quittung) - wird beim Erfassen in den Sicherungsordner
+    // kopiert, damit sie nicht verloren geht, falls Stefan die
+    // Original-Datei spaeter verschiebt oder loescht.
+    #[serde(default)]
+    pub beleg_quelle: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,10 +63,34 @@ pub struct Ausgabe {
     pub kategorie: String,
     pub betrag: f64,
     pub notiz: String,
+    pub beleg_pfad: Option<String>,
 }
 
 fn zeile_zu_ausgabe(z: &Row) -> rusqlite::Result<Ausgabe> {
-    Ok(Ausgabe { id: z.get(0)?, datum: z.get(1)?, kategorie: z.get(2)?, betrag: z.get(3)?, notiz: z.get(4)? })
+    Ok(Ausgabe {
+        id: z.get(0)?,
+        datum: z.get(1)?,
+        kategorie: z.get(2)?,
+        betrag: z.get(3)?,
+        notiz: z.get(4)?,
+        beleg_pfad: z.get(5)?,
+    })
+}
+
+const AUSGABE_SPALTEN: &str = "id, datum, kategorie, betrag, notiz, beleg_pfad";
+
+/// Kopiert eine Beleg-Datei (vom nativen Dateidialog ausgewaehlt) in den
+/// Sicherungsordner, benannt nach der Ausgabe-Id - damit zwei Belege nie
+/// denselben Dateinamen bekommen, auch wenn beide Originale z.B.
+/// "foto.jpg" heissen.
+fn beleg_kopieren(quelle: &str, ausgabe_id: i64) -> Result<String, TreuhandFehler> {
+    let quelle_pfad = Path::new(quelle);
+    let endung = quelle_pfad.extension().and_then(|e| e.to_str()).unwrap_or("dat");
+    let ordner = sicherungs_ordner().join("Belege");
+    std::fs::create_dir_all(&ordner).map_err(TreuhandFehler::Beleg)?;
+    let ziel = ordner.join(format!("Beleg_{ausgabe_id}.{endung}"));
+    std::fs::copy(quelle_pfad, &ziel).map_err(TreuhandFehler::Beleg)?;
+    Ok(ziel.display().to_string())
 }
 
 pub fn ausgabe_erfassen(conn: &Connection, eingabe: &NeueAusgabe) -> Result<Ausgabe, TreuhandFehler> {
@@ -73,13 +105,19 @@ pub fn ausgabe_erfassen(conn: &Connection, eingabe: &NeueAusgabe) -> Result<Ausg
         params![eingabe.datum.trim(), eingabe.kategorie, eingabe.betrag, eingabe.notiz.trim()],
     )?;
     let id = conn.last_insert_rowid();
-    let sql = "SELECT id, datum, kategorie, betrag, notiz FROM ausgaben WHERE id = ?1";
-    Ok(conn.query_row(sql, [id], zeile_zu_ausgabe)?)
+
+    if let Some(quelle) = &eingabe.beleg_quelle {
+        let beleg_pfad = beleg_kopieren(quelle, id)?;
+        conn.execute("UPDATE ausgaben SET beleg_pfad = ?1 WHERE id = ?2", params![beleg_pfad, id])?;
+    }
+
+    let sql = format!("SELECT {AUSGABE_SPALTEN} FROM ausgaben WHERE id = ?1");
+    Ok(conn.query_row(&sql, [id], zeile_zu_ausgabe)?)
 }
 
 pub fn ausgaben_eines_jahres(conn: &Connection, jahr: i32) -> Result<Vec<Ausgabe>, TreuhandFehler> {
-    let sql = "SELECT id, datum, kategorie, betrag, notiz FROM ausgaben WHERE strftime('%Y', datum) = ?1 ORDER BY datum, id";
-    let mut stmt = conn.prepare(sql)?;
+    let sql = format!("SELECT {AUSGABE_SPALTEN} FROM ausgaben WHERE strftime('%Y', datum) = ?1 ORDER BY datum, id");
+    let mut stmt = conn.prepare(&sql)?;
     let zeilen = stmt.query_map([jahr.to_string()], zeile_zu_ausgabe)?.collect::<Result<Vec<_>, _>>()?;
     Ok(zeilen)
 }
@@ -228,7 +266,7 @@ mod tests {
     }
 
     fn ausgabe(datum: &str, kategorie: &str, betrag: f64) -> NeueAusgabe {
-        NeueAusgabe { datum: datum.into(), kategorie: kategorie.into(), betrag, notiz: "".into() }
+        NeueAusgabe { datum: datum.into(), kategorie: kategorie.into(), betrag, notiz: "".into(), beleg_quelle: None }
     }
 
     #[test]
@@ -265,14 +303,14 @@ mod tests {
     #[test]
     fn zusammenfassung_rechnet_wie_in_stefans_treuhand_beispiel() {
         let ausgaben = vec![
-            Ausgabe { id: 1, datum: "2026-01-01".into(), kategorie: "Kleinmaterial / Atelier".into(), betrag: 604.27, notiz: "".into() },
-            Ausgabe { id: 2, datum: "2026-01-01".into(), kategorie: "Einrichten / Investition".into(), betrag: 995.2, notiz: "".into() },
-            Ausgabe { id: 3, datum: "2026-01-01".into(), kategorie: "Telefon".into(), betrag: 1090.6, notiz: "".into() },
-            Ausgabe { id: 4, datum: "2026-01-01".into(), kategorie: "Versicherung".into(), betrag: 30.0, notiz: "".into() },
-            Ausgabe { id: 5, datum: "2026-01-01".into(), kategorie: "Reparaturen / Service Arbeitsgeräte".into(), betrag: 99.9, notiz: "".into() },
-            Ausgabe { id: 6, datum: "2026-01-01".into(), kategorie: "Miete / Strom".into(), betrag: 12505.0, notiz: "".into() },
-            Ausgabe { id: 7, datum: "2026-01-01".into(), kategorie: "AHV".into(), betrag: 332.9, notiz: "".into() },
-            Ausgabe { id: 8, datum: "2026-01-01".into(), kategorie: "Mitarbeiterin".into(), betrag: 2392.94, notiz: "".into() },
+            Ausgabe { id: 1, datum: "2026-01-01".into(), kategorie: "Kleinmaterial / Atelier".into(), betrag: 604.27, notiz: "".into(), beleg_pfad: None },
+            Ausgabe { id: 2, datum: "2026-01-01".into(), kategorie: "Einrichten / Investition".into(), betrag: 995.2, notiz: "".into(), beleg_pfad: None },
+            Ausgabe { id: 3, datum: "2026-01-01".into(), kategorie: "Telefon".into(), betrag: 1090.6, notiz: "".into(), beleg_pfad: None },
+            Ausgabe { id: 4, datum: "2026-01-01".into(), kategorie: "Versicherung".into(), betrag: 30.0, notiz: "".into(), beleg_pfad: None },
+            Ausgabe { id: 5, datum: "2026-01-01".into(), kategorie: "Reparaturen / Service Arbeitsgeräte".into(), betrag: 99.9, notiz: "".into(), beleg_pfad: None },
+            Ausgabe { id: 6, datum: "2026-01-01".into(), kategorie: "Miete / Strom".into(), betrag: 12505.0, notiz: "".into(), beleg_pfad: None },
+            Ausgabe { id: 7, datum: "2026-01-01".into(), kategorie: "AHV".into(), betrag: 332.9, notiz: "".into(), beleg_pfad: None },
+            Ausgabe { id: 8, datum: "2026-01-01".into(), kategorie: "Mitarbeiterin".into(), betrag: 2392.94, notiz: "".into(), beleg_pfad: None },
         ];
         let z = zusammenfassen(18975.29, &ausgaben);
         assert!((z.ausgaben_gesamt - 18050.81).abs() < 0.01, "Total Ausgaben: {}", z.ausgaben_gesamt);
