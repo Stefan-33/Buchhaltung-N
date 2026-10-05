@@ -56,10 +56,10 @@ fn quittung_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen) -> String 
 <p style="font-size:14pt;font-weight:bold;margin:0;">{name}</p>
 <p style="margin:0;color:#555555;">{zeile2}</p>
 <p style="margin:0;color:#555555;">{adresse}</p>
-<p style="margin:0 0 4mm 0;color:#555555;">{telefon} &middot; {web}</p>
+<p style="margin:0 0 4mm 0;color:#555555;">{telefon} · {web}</p>
 
-<p style="font-size:13pt;font-weight:bold;margin:0;">Quittung {nr} &middot; {datum}</p>
-<p style="margin:0 0 4mm 0;color:#555555;">{vorname} {kname} &middot; {ort}</p>
+<p style="font-size:13pt;font-weight:bold;margin:0;">Quittung {nr} · {datum}</p>
+<p style="margin:0 0 4mm 0;color:#555555;">{vorname} {kname} · {ort}</p>
 
 <hr/>
 <table style="width:100%;">
@@ -68,7 +68,7 @@ fn quittung_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen) -> String 
 </table>
 <hr/>
 
-<p style="text-align:right;font-weight:bold;font-size:13pt;">Total &middot; bezahlt {zahlart} &nbsp; CHF {summe:.2}</p>
+<p style="text-align:right;font-weight:bold;font-size:13pt;">Total · bezahlt {zahlart} &nbsp; CHF {summe:.2}</p>
 
 <p style="font-size:9pt;color:#777777;margin-top:10mm;">{hinweis1}</p>
 <p style="font-size:9pt;color:#777777;margin:0;">{hinweis2}</p>
@@ -185,6 +185,19 @@ mod tests {
         assert!(html.contains("Hose kürzen"));
         assert!(html.contains("43.50"));
         assert!(html.contains("Nähservice Straub"));
+    }
+
+    // Stefan meldet per Screenshot: "&middot;" taucht woertlich in der
+    // gedruckten Quittung auf, statt als "·" angezeigt zu werden - printpdf's
+    // eingebauter HTML-Renderer kennt benannte HTML-Entities wie "&middot;"
+    // nicht (nur ein paar wenige Grundlegende). Fix: das Trennzeichen direkt
+    // als UTF-8-Zeichen im Text statt als Entity - diese Regression darf
+    // nicht wiederkommen.
+    #[test]
+    fn trennzeichen_wird_als_echtes_zeichen_und_nicht_als_entity_geschrieben() {
+        let html = quittung_html(&test_auftrag(), &test_kunde(), &Einstellungen::default());
+        assert!(!html.contains("&middot;"), "waere woertlich in der Quittung zu sehen");
+        assert!(html.contains('·'), "das Trennzeichen muss trotzdem vorkommen");
     }
 
     // Genau der Fall, der ueberhaupt erst zu diesem Modul gefuehrt hat:
