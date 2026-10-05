@@ -1403,24 +1403,60 @@
       .catch(function (e) { echo.textContent = fehlerText(e); echo.style.color = "var(--faden)"; });
   });
 
-  // ================= MITARBEITERIN ANLEGEN =================
+  // ================= MITARBEITERIN ANLEGEN / BEARBEITEN =================
   // Bewusst ohne Login-Option: eine Mitarbeiterin bekommt hier nur ein
   // Lohnprofil (fuer die Treuhand-Lohnabrechnung), keinen Zugang zum
   // Programm - Stefan traegt ihre Stunden selbst ein (ueber "Fuer wen?").
+  // Derselbe Dialog fuer beides, genau wie bei "Kunde bearbeiten" -
+  // "maBearbeitenId" entscheidet, ob neu angelegt oder aktualisiert wird.
   var elMaDialog = document.getElementById("mitarbeiterinDialog");
   var elMaFehler = document.getElementById("ma-fehler");
   var elMaErfolg = document.getElementById("ma-erfolg");
   var elMaKnopf = document.getElementById("ma-anlegen");
+  var elMaListe = document.getElementById("maListe");
+  var maBearbeitenId = null;
 
-  document.getElementById("mitarbeiterinAnlegenKnopf").addEventListener("click", function () {
+  function maListeLaden() {
+    invoke("alle_benutzer").then(function (benutzer) {
+      var mitarbeiterinnen = benutzer.filter(function (b) { return b.rolle === "mitarbeiterin"; });
+      if (!mitarbeiterinnen.length) { elMaListe.innerHTML = ""; return; }
+      elMaListe.innerHTML =
+        '<div class="tabellenrahmen" style="margin:12px 0"><table class="auflistung"><tbody>' +
+        mitarbeiterinnen
+          .map(function (b) {
+            var lohn = b.stundenlohn ? chf(b.stundenlohn) + "/Std." : "kein Stundenlohn hinterlegt";
+            return "<tr><td>" + escapeHtml(b.anzeigename) + '</td><td style="color:var(--tinte-2)">' + lohn +
+              '</td><td><button type="button" class="knopf" data-id="' + b.id + '" style="font-size:12px;padding:3px 10px">Bearbeiten</button></td></tr>';
+          })
+          .join("") +
+        "</tbody></table></div>";
+      elMaListe.querySelectorAll("button[data-id]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var b = mitarbeiterinnen.filter(function (m) { return m.id === Number(btn.dataset.id); })[0];
+          if (b) maDialogOeffnen(b);
+        });
+      });
+    });
+  }
+
+  function maDialogOeffnen(bestehende) {
     document.getElementById("mitarbeiterinFormular").reset();
-    document.getElementById("ma-anzeigename").value = "Mitarbeiterin 1";
+    maBearbeitenId = bestehende ? bestehende.id : null;
+    document.getElementById("ma-titel").textContent = bestehende ? "Mitarbeiterin bearbeiten" : "Mitarbeiterin anlegen";
+    elMaKnopf.textContent = bestehende ? "Speichern" : "Anlegen";
+    document.getElementById("ma-anzeigename").value = bestehende ? bestehende.anzeigename : "Mitarbeiterin 1";
+    document.getElementById("ma-strasse").value = bestehende ? bestehende.strasse : "";
+    document.getElementById("ma-plz-ort").value = bestehende ? bestehende.plz_ort : "";
+    document.getElementById("ma-ahv-nummer").value = bestehende ? bestehende.ahv_nummer : "";
+    document.getElementById("ma-stundenlohn").value = bestehende && bestehende.stundenlohn ? bestehende.stundenlohn : "";
     elMaFehler.hidden = true;
     elMaErfolg.hidden = true;
     elMaDialog.showModal();
     document.getElementById("ma-anzeigename").focus();
-  });
-  document.getElementById("ma-abbrechen").addEventListener("click", function () { elMaDialog.close(); });
+  }
+
+  document.getElementById("mitarbeiterinAnlegenKnopf").addEventListener("click", function () { maDialogOeffnen(null); });
+  document.getElementById("ma-abbrechen").addEventListener("click", function () { elMaDialog.close(); maListeLaden(); });
 
   elMaKnopf.addEventListener("click", function () {
     elMaFehler.hidden = true;
@@ -1441,11 +1477,25 @@
       return;
     }
 
+    var aufruf = maBearbeitenId
+      ? invoke("mitarbeiterin_profil_aktualisieren", {
+          benutzer_id: maBearbeitenId,
+          anzeigename: eingabe.anzeigename,
+          strasse: eingabe.strasse,
+          plz_ort: eingabe.plz_ort,
+          ahv_nummer: eingabe.ahv_nummer,
+          stundenlohn: eingabe.stundenlohn,
+        })
+      : invoke("mitarbeiterin_anlegen", { eingabe: eingabe });
+
     knopfSperren(elMaKnopf, true);
-    invoke("mitarbeiterin_anlegen", { eingabe: eingabe })
+    aufruf
       .then(function () {
-        elMaErfolg.textContent = "Angelegt - Stunden trägst du für sie unter „Für wen?“ ein.";
+        elMaErfolg.textContent = maBearbeitenId
+          ? "Gespeichert."
+          : "Angelegt - Stunden trägst du für sie unter „Für wen?“ ein.";
         elMaErfolg.hidden = false;
+        maListeLaden();
       })
       .catch(function (e) {
         elMaFehler.textContent = fehlerText(e);
@@ -1455,6 +1505,67 @@
   });
   document.getElementById("mitarbeiterinFormular").querySelectorAll("input").forEach(function (f) {
     f.addEventListener("keydown", enterLoest(function () { elMaKnopf.click(); }));
+  });
+
+  // ================= ZWEITES KONTO ANLEGEN =================
+  // Fuer einen zweiten vollwertigen Zugang (z.B. Mama) - nutzt dieselbe
+  // Rolle "inhaber" wie das erste Konto, siehe zweites_konto_anlegen in
+  // commands.rs. Bewusst kein Bearbeiten/Loeschen hier - das ist ein
+  // seltener, bewusster Schritt, kein laufend gepflegtes Profil.
+  var elZkDialog = document.getElementById("zweitesKontoDialog");
+  var elZkFehler = document.getElementById("zk-fehler");
+  var elZkErfolg = document.getElementById("zk-erfolg");
+  var elZkKnopf = document.getElementById("zk-anlegen");
+
+  document.getElementById("zweitesKontoKnopf").addEventListener("click", function () {
+    document.getElementById("zweitesKontoFormular").reset();
+    elZkFehler.hidden = true;
+    elZkErfolg.hidden = true;
+    elZkDialog.showModal();
+    document.getElementById("zk-anzeigename").focus();
+  });
+  document.getElementById("zk-abbrechen").addEventListener("click", function () { elZkDialog.close(); });
+
+  elZkKnopf.addEventListener("click", function () {
+    elZkFehler.hidden = true;
+    elZkErfolg.hidden = true;
+    var anzeigename = document.getElementById("zk-anzeigename").value.trim();
+    var benutzername = document.getElementById("zk-benutzername").value.trim();
+    var passwort = document.getElementById("zk-passwort").value;
+    var passwort2 = document.getElementById("zk-passwort2").value;
+
+    if (!anzeigename || !benutzername || !passwort || !passwort2) {
+      elZkFehler.textContent = "Bitte alle Felder ausfüllen.";
+      elZkFehler.hidden = false;
+      return;
+    }
+    if (passwort !== passwort2) {
+      elZkFehler.textContent = "Die beiden Passwörter stimmen nicht überein.";
+      elZkFehler.hidden = false;
+      return;
+    }
+    if (passwort.length < 6) {
+      elZkFehler.textContent = "Mindestens 6 Zeichen.";
+      elZkFehler.hidden = false;
+      return;
+    }
+
+    knopfSperren(elZkKnopf, true);
+    invoke("zweites_konto_anlegen", { benutzername: benutzername, anzeigename: anzeigename, passwort: passwort })
+      .then(function () {
+        elZkErfolg.textContent = "Angelegt. Zum Anmelden: Benutzername „" + benutzername + "“ und das eben vergebene Passwort.";
+        elZkErfolg.hidden = false;
+        document.getElementById("zk-passwort").value = "";
+        document.getElementById("zk-passwort2").value = "";
+      })
+      .catch(function (e) {
+        elZkFehler.textContent = fehlerText(e);
+        elZkFehler.hidden = false;
+      })
+      .finally(function () { knopfSperren(elZkKnopf, false); });
+  });
+  document.getElementById("zweitesKontoFormular").querySelectorAll("input").forEach(function (f) {
+    f.addEventListener("keydown", enterLoest(function () { elZkKnopf.click(); }));
   });
 
   // ================= TREUHAND =================
@@ -1776,7 +1887,7 @@
         x.setAttribute("aria-selected", an);
         document.getElementById(x.getAttribute("aria-controls")).hidden = !an;
       });
-      if (t.id === "r-monat") monatLaden();
+      if (t.id === "r-monat") { monatLaden(); maListeLaden(); }
       if (t.id === "r-stunden") stMonatLaden();
       if (t.id === "r-treuhand") thLaden();
     });
