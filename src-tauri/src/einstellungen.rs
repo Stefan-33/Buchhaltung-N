@@ -36,6 +36,10 @@ pub struct Einstellungen {
     // zu können".
     pub quittung_hinweis1: String,
     pub quittung_hinweis2: String,
+    // Logo/Foto fuer den Quittungskopf - Pfad im Sicherungsordner (siehe
+    // quittung::logo_setzen). None = kein Logo hinterlegt, dann erscheint
+    // keine Bildzeile auf der Quittung.
+    pub quittung_logo_pfad: Option<String>,
     // Saetze fuer die automatische Lohnabrechnung einer Mitarbeiterin
     // (treuhand.rs), in Prozent - aendern sich gelegentlich von Jahr zu
     // Jahr, darum hier einstellbar statt im Code fest einprogrammiert.
@@ -59,6 +63,7 @@ impl Default for Einstellungen {
             kartensatz_b: 2.5,
             quittung_hinweis1: "Reklamationen innert 10 Tagen nach Abholung".into(),
             quittung_hinweis2: "Kundenexemplar · Kartensatz und Gebühr erscheinen hier nie.".into(),
+            quittung_logo_pfad: None,
             // Stand 2024/2025 fuer den Kanton Schwyz, genau wie in Stefans
             // bisheriger Lohnabrechnung-Excel (KTV/NBU bewusst nicht
             // automatisiert - bei ihm bisher ohne Abzug).
@@ -88,6 +93,10 @@ pub fn einstellungen_lesen(conn: &Connection) -> Result<Einstellungen, Einstellu
         kartensatz_b: lesen(conn, "kartensatz_b", &d.kartensatz_b.to_string())?.parse().unwrap_or(d.kartensatz_b),
         quittung_hinweis1: lesen(conn, "quittung_hinweis1", &d.quittung_hinweis1)?,
         quittung_hinweis2: lesen(conn, "quittung_hinweis2", &d.quittung_hinweis2)?,
+        quittung_logo_pfad: {
+            let p = lesen(conn, "quittung_logo_pfad", "")?;
+            if p.is_empty() { None } else { Some(p) }
+        },
         lohn_ferienzuschlag_satz: lesen(conn, "lohn_ferienzuschlag_satz", &d.lohn_ferienzuschlag_satz.to_string())?
             .parse()
             .unwrap_or(d.lohn_ferienzuschlag_satz),
@@ -124,6 +133,7 @@ pub fn einstellungen_speichern(conn: &Connection, e: &Einstellungen) -> Result<(
     schreiben(conn, "kartensatz_b", &e.kartensatz_b.to_string())?;
     schreiben(conn, "quittung_hinweis1", e.quittung_hinweis1.trim())?;
     schreiben(conn, "quittung_hinweis2", e.quittung_hinweis2.trim())?;
+    schreiben(conn, "quittung_logo_pfad", e.quittung_logo_pfad.as_deref().unwrap_or(""))?;
     schreiben(conn, "lohn_ferienzuschlag_satz", &e.lohn_ferienzuschlag_satz.to_string())?;
     schreiben(conn, "lohn_ahv_satz", &e.lohn_ahv_satz.to_string())?;
     schreiben(conn, "lohn_alv_satz", &e.lohn_alv_satz.to_string())?;

@@ -248,6 +248,18 @@ pub fn beleg_oeffnen(pfad: String) -> Antwort<()> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub fn quittung_logo_setzen(zustand: State<AppZustand>, quelle: String) -> Antwort<String> {
+    let conn = verbindung_sperren(&zustand);
+    quittung::logo_setzen(&conn, &quelle)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn quittung_logo_entfernen(zustand: State<AppZustand>) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    quittung::logo_entfernen(&conn)
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn treuhand_bericht_exportieren(zustand: State<AppZustand>, jahr: i32) -> Antwort<String> {
     let conn = verbindung_sperren(&zustand);
     treuhand::treuhand_bericht_exportieren(&conn, jahr).map(|p| p.display().to_string())

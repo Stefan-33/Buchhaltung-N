@@ -408,6 +408,16 @@
           <label class="feld"><span>Website</span><input id="ei-geschaeft-web"></label>
           <label class="feld"><span>Kleingedrucktes Zeile 1 (auf der Quittung)</span><input id="ei-quittung-hinweis1"></label>
           <label class="feld"><span>Kleingedrucktes Zeile 2 (auf der Quittung)</span><input id="ei-quittung-hinweis2"></label>
+          <p class="login-hinweis" style="margin-top:0">
+            Ein leer gelassenes Feld erscheint auf der Quittung einfach gar nicht -
+            so bestimmst du selbst, was oben drauf steht.
+          </p>
+          <label class="feld"><span>Logo/Foto (erscheint oben auf der Quittung)</span></label>
+          <div class="knopfreihe" style="margin-top:0">
+            <button type="button" class="knopf" id="ei-logo-waehlen">Logo/Foto auswählen…</button>
+            <button type="button" class="knopf" id="ei-logo-entfernen" hidden>Logo entfernen</button>
+          </div>
+          <p id="ei-logo-name" style="font-size:13px;color:var(--tinte-2)">Kein Logo hinterlegt.</p>
           <p id="ei-geschaeft-fehler" class="login-fehler" hidden></p>
           <p id="ei-geschaeft-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
           <div class="knopfreihe">

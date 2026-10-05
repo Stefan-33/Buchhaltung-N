@@ -48,4 +48,4 @@ calamine = { version = "0.30.1", features = ["dates"] }
 # ueber window.print() - der native Windows-Druckdialog fuegt dort eine
 # Kopf-/Fusszeile (Datum, Seitentitel, URL, Seitenzahl) hinzu, die sich
 # nicht abschalten laesst; ein selbst erzeugtes PDF hat so etwas nicht.
-printpdf = { version = "0.12.8", features = ["html"] }
+printpdf = { version = "0.12.8", features = ["html", "jpeg", "png"] }

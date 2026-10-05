@@ -1884,12 +1884,49 @@
     document.getElementById("ei-geschaeft-web").value = aktuelleEinstellungen.geschaeft_web;
     document.getElementById("ei-quittung-hinweis1").value = aktuelleEinstellungen.quittung_hinweis1;
     document.getElementById("ei-quittung-hinweis2").value = aktuelleEinstellungen.quittung_hinweis2;
+    einstellungenLogoAnzeigen();
     document.getElementById("ei-kartensatz-a").value = aktuelleEinstellungen.kartensatz_a;
     document.getElementById("ei-kartensatz-b").value = aktuelleEinstellungen.kartensatz_b;
     document.getElementById("ei-lohn-ferienzuschlag").value = aktuelleEinstellungen.lohn_ferienzuschlag_satz;
     document.getElementById("ei-lohn-ahv").value = aktuelleEinstellungen.lohn_ahv_satz;
     document.getElementById("ei-lohn-alv").value = aktuelleEinstellungen.lohn_alv_satz;
   }
+
+  // --- Quittungs-Logo (eigenes Foto/Logo oben auf der Quittung) ---
+  function einstellungenLogoAnzeigen() {
+    var vorhanden = !!aktuelleEinstellungen.quittung_logo_pfad;
+    document.getElementById("ei-logo-entfernen").hidden = !vorhanden;
+    document.getElementById("ei-logo-name").textContent = vorhanden
+      ? "Hinterlegt: " + aktuelleEinstellungen.quittung_logo_pfad.split(/[\\/]/).pop()
+      : "Kein Logo hinterlegt.";
+  }
+
+  document.getElementById("ei-logo-waehlen").addEventListener("click", function () {
+    var elFehler = document.getElementById("ei-geschaeft-fehler");
+    elFehler.hidden = true;
+    if (!window.__TAURI__.dialog || !window.__TAURI__.dialog.open) {
+      elFehler.textContent = "Dateiauswahl ist in dieser Programmversion nicht verfügbar.";
+      elFehler.hidden = false;
+      return;
+    }
+    window.__TAURI__.dialog
+      .open({ multiple: false, filters: [{ name: "Logo/Foto", extensions: ["jpg", "jpeg", "png"] }] })
+      .then(function (pfad) {
+        if (!pfad) return; // Dialog abgebrochen
+        return invoke("quittung_logo_setzen", { quelle: pfad }).then(function (zielPfad) {
+          aktuelleEinstellungen.quittung_logo_pfad = zielPfad;
+          einstellungenLogoAnzeigen();
+        });
+      })
+      .catch(function (e) { elFehler.textContent = fehlerText(e); elFehler.hidden = false; });
+  });
+
+  document.getElementById("ei-logo-entfernen").addEventListener("click", function () {
+    invoke("quittung_logo_entfernen").then(function () {
+      aktuelleEinstellungen.quittung_logo_pfad = null;
+      einstellungenLogoAnzeigen();
+    });
+  });
 
   // --- Mein Konto: eigenes Passwort ---
   var elEiPasswort = document.getElementById("ei-passwort");
