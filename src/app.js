@@ -461,7 +461,6 @@
   // "Datei auswählen" direkt aus einer Excel-/CSV-Datei (ohne Copy&Paste).
   var elKiDialog = document.getElementById("kundenImportDialog");
   var elKiText = document.getElementById("ki-text");
-  var elKiKopfzeile = document.getElementById("ki-kopfzeile");
   var elKiVorschau = document.getElementById("ki-vorschau");
   var elKiFehler = document.getElementById("ki-fehler");
   var elKiImportierenKnopf = document.getElementById("ki-importieren");
@@ -474,6 +473,8 @@
   // kiTelefonSpaltenErkennen), weil es davon mehrere geben kann (Mobil,
   // Privat, Geschäft, ...), die zusammengefuehrt werden muessen.
   var KI_FELD_SYNONYME = {
+    namevoll_nv: ["namevorname", "nachnamevorname"],
+    namevoll_vn: ["vornamename", "vornamenachname", "vollername"],
     nummer: ["nummer", "kundennummer", "knr", "kdnr"],
     name: ["name", "nachname", "familienname"],
     vorname: ["vorname"],
@@ -481,14 +482,26 @@
     adresse: ["adresse", "strasse", "straße", "wohnadresse"],
     email: ["email", "mail"],
     notiz: ["notiz", "bemerkung", "anmerkung", "spez", "spezial", "hinweis"],
+    plz: ["plz", "postleitzahl"],
   };
+  // Auswahl pro Spalte in der Vorschau ("Spalten zuordnen") - damit sich
+  // eine falsch erkannte Spalte von Hand korrigieren laesst.
+  var KI_FELDER = [
+    ["", "– nicht übernehmen –"], ["nummer", "Kunden-Nr."], ["name", "Name"], ["vorname", "Vorname"],
+    ["namevoll_vn", "Vorname Name (zusammen)"], ["namevoll_nv", "Name Vorname (zusammen)"],
+    ["telefon", "Telefon"], ["adresse", "Strasse / Adresse"], ["plz", "PLZ"], ["ort", "Ort"],
+    ["email", "E-Mail"], ["notiz", "Notiz"],
+  ];
+  var kiTabelle = [];   // eingefuegte/gelesene Tabelle, Zeilen von Zellen
+  var kiKopfIndex = -1; // Zeile mit den Spaltenueberschriften, -1 = keine
+  var kiSpaltenFeld = []; // Feld pro Spalte (automatisch erkannt)
+  var kiVonHand = {};   // Spalte -> Feld, von Hand gewaehlt
   var KI_STANDARD_REIHENFOLGE = ["name", "vorname", "telefon", "ort", "adresse", "email"];
   // Reihenfolge = Prioritaet: die erste gefundene, nicht-leere Nummer
   // einer Zeile wird das Telefon-Hauptfeld, alle weiteren vorhandenen
   // landen beschriftet in der Notiz (siehe Stefans Telefonliste: Mobil,
   // Privat, Geschäft, Ausland in eigenen Spalten).
   var KI_TELEFON_PRIORITAET = ["mobil", "handy", "natel", "telefon", "tel", "privat", "festnetz", "geschaeft", "gesch", "business", "ausland", "fax"];
-  var kiKopfzeileErkannt = false;
 
   function kiTextNormalisieren(s) {
     return String(s || "").toLowerCase().replace(/ß/g, "ss").replace(/[^a-z0-9]/g, "").trim();
@@ -596,66 +609,136 @@
     return treffer;
   }
 
-  function kiEintraegeBauen(tabelle, zuordnung, telefonSpalten, kopfzeileUeberspringen) {
-    var zeilen = kopfzeileUeberspringen ? tabelle.slice(1) : tabelle;
-    return zeilen.map(function (spalten) {
-      var e = { nummer: "", name: "", vorname: "", telefon: "", ort: "", adresse: "", email: "", notiz: "" };
-      spalten.forEach(function (wert, i) {
-        var feld = zuordnung[i];
-        if (feld) e[feld] = String(wert || "").trim();
-      });
-      if (telefonSpalten && telefonSpalten.length) {
-        var nummernMitLabel = telefonSpalten
-          .map(function (t) { return { label: t.label, wert: String(spalten[t.index] || "").trim() }; })
-          .filter(function (n) { return n.wert; });
-        if (nummernMitLabel.length) {
-          e.telefon = nummernMitLabel[0].wert;
-          var weitere = nummernMitLabel.slice(1).map(function (n) { return n.label + ": " + n.wert; }).join(", ");
-          if (weitere) e.notiz = e.notiz ? e.notiz + " · " + weitere : weitere;
-        }
-      }
-      return e;
-    });
+  // Wie sehr eine Zeile nach Kopfzeile aussieht: nur Zellen, die exakt
+  // eine bekannte Ueberschrift sind ("Name", "Vorname", "Telefon" ...).
+  // Teiltreffer zaehlen hier bewusst nicht - sonst saehe eine Datenzeile
+  // mit "Seestrasse 1" und "anna@mail.ch" auch wie eine Kopfzeile aus.
+  var KI_KOPF_EXAKT = [].concat.apply(["tel", "telefon", "mobil", "natel", "handy", "privat"],
+    Object.keys(KI_FELD_SYNONYME).map(function (f) { return KI_FELD_SYNONYME[f]; }));
+  function kiKopfTreffer(spalten) {
+    var anzahl = spalten.filter(function (z) { return KI_KOPF_EXAKT.indexOf(kiTextNormalisieren(z)) !== -1; }).length;
+    return { anzahl: anzahl, ergebnis: anzahl >= 2 ? kiKopfzeileZuordnen(spalten) : null };
   }
 
-  // Zerlegt den eingefuegten Text neu und ordnet die Spalten zu - wird bei
-  // jeder Texteingabe aufgerufen (debounced) und wenn die Kopfzeile-Checkbox
-  // von Hand umgestellt wird.
-  function kiNeuVerarbeiten(kopfzeileCheckboxVonHand) {
+  // Sucht in den ersten 30 Zeilen die Kopfzeile (die mit den meisten
+  // erkannten Ueberschriften, mindestens 2) - davor stehen oft ein Titel
+  // oder leere Zeilen, und die Tabelle beginnt nicht immer in Spalte A.
+  function kiKopfSuchen(tabelle) {
+    var beste = -1, besteAnzahl = 1;
+    for (var i = 0; i < Math.min(tabelle.length, 30); i++) {
+      var n = kiKopfTreffer(tabelle[i]).anzahl;
+      if (n > besteAnzahl) { beste = i; besteAnzahl = n; }
+    }
+    return beste;
+  }
+
+  function kiFeldFuer(i) {
+    return Object.prototype.hasOwnProperty.call(kiVonHand, i) ? kiVonHand[i] : (kiSpaltenFeld[i] || "");
+  }
+
+  function kiEintragBauen(spalten, kopf) {
+    var e = { nummer: "", name: "", vorname: "", telefon: "", ort: "", adresse: "", email: "", notiz: "" };
+    var plz = "", telefone = [], notizen = [];
+    spalten.forEach(function (roh, i) {
+      var wert = String(roh || "").trim();
+      var feld = kiFeldFuer(i);
+      if (!wert || !feld) return;
+      if (feld === "telefon") {
+        telefone.push({ label: String((kopf && kopf[i]) || "Tel.").trim(), wert: wert });
+      } else if (feld === "notiz") {
+        notizen.push(wert);
+      } else if (feld === "plz") {
+        plz = wert;
+      } else if (feld === "namevoll_vn" || feld === "namevoll_nv") {
+        var teile = wert.split(/\s+/);
+        if (teile.length === 1) { e.name = e.name || teile[0]; return; }
+        if (feld === "namevoll_vn") { e.name = e.name || teile.pop(); e.vorname = e.vorname || teile.join(" "); }
+        else { e.name = e.name || teile.shift(); e.vorname = e.vorname || teile.join(" "); }
+      } else if (!e[feld]) {
+        e[feld] = wert;
+      }
+    });
+    if (plz) e.ort = (plz + " " + e.ort).trim();
+    if (telefone.length) {
+      e.telefon = telefone[0].wert;
+      telefone.slice(1).forEach(function (t) { notizen.push(t.label + ": " + t.wert); });
+    }
+    e.notiz = notizen.join(" · ");
+    return e;
+  }
+
+  // Zerlegt den eingefuegten Text neu und erkennt die Spalten. "vonHand"
+  // bleibt bei einer reinen Neuberechnung (Auswahl geaendert) erhalten,
+  // bei neuem Text wird sie verworfen.
+  function kiNeuVerarbeiten(zuordnungBehalten) {
+    if (!zuordnungBehalten) kiVonHand = {};
     var zeilen = kiZeilenAufteilen(elKiText.value);
-    if (!zeilen.length) {
-      kiEintraegeAlle = [];
-      kiVorschauZeichnen();
-      return;
-    }
-
+    if (!zeilen.length) { kiTabelle = []; kiEintraegeAlle = []; kiVorschauZeichnen(); return; }
     var trenner = kiTrennzeichenErkennen(zeilen[0]);
-    var tabelle = zeilen.map(function (z) { return kiZeileSpalten(z, trenner); });
-    var ergebnis = kiKopfzeileZuordnen(tabelle[0]);
-    var zuordnung = ergebnis.zuordnung;
-    var telefonSpalten = ergebnis.telefonSpalten;
-    // Mindestens 2 Treffer verlangen (bei nur einer Spalte reicht 1) -
-    // sonst koennte ein einzelner Zufallstreffer (z.B. "Seestrasse"
-    // enthaelt "strasse") eine ganz normale erste Datenzeile faelschlich
-    // als Kopfzeile einstufen und damit verschlucken.
-    var mindestTreffer = tabelle[0].length <= 1 ? 1 : 2;
-    kiKopfzeileErkannt = Object.keys(zuordnung).length + telefonSpalten.length >= mindestTreffer;
-
-    if (!kiKopfzeileErkannt) {
-      zuordnung = {};
-      KI_STANDARD_REIHENFOLGE.forEach(function (feld, i) { zuordnung[i] = feld; });
-      telefonSpalten = [];
+    kiTabelle = zeilen.map(function (z) { return kiZeileSpalten(z, trenner); });
+    kiKopfIndex = kiKopfSuchen(kiTabelle);
+    kiSpaltenFeld = [];
+    if (kiKopfIndex >= 0) {
+      var e = kiKopfTreffer(kiTabelle[kiKopfIndex]).ergebnis;
+      Object.keys(e.zuordnung).forEach(function (i) { kiSpaltenFeld[i] = e.zuordnung[i]; });
+      e.telefonSpalten.forEach(function (t) { kiSpaltenFeld[t.index] = "telefon"; });
+    } else {
+      // Ohne Kopfzeile: Name, Vorname, Telefon, Ort, Adresse, E-Mail ab der
+      // ersten Spalte, in der ueberhaupt etwas steht.
+      var start = Math.min.apply(null, kiTabelle.map(function (z) {
+        var i = z.findIndex(function (w) { return String(w || "").trim(); });
+        return i < 0 ? 999 : i;
+      }));
+      KI_STANDARD_REIHENFOLGE.forEach(function (feld, i) { kiSpaltenFeld[start + i] = feld; });
     }
-    if (!kopfzeileCheckboxVonHand) elKiKopfzeile.checked = kiKopfzeileErkannt;
-
-    kiEintraegeAlle = kiEintraegeBauen(tabelle, zuordnung, telefonSpalten, elKiKopfzeile.checked);
+    var kopf = kiKopfIndex >= 0 ? kiTabelle[kiKopfIndex] : null;
+    kiEintraegeAlle = kiTabelle
+      .filter(function (z, i) {
+        if (i <= kiKopfIndex) return false; // Titel und Kopfzeile
+        return kiKopfTreffer(z).anzahl < 2; // wiederholte Kopfzeile (weiteres Blatt)
+      })
+      .map(function (z) { return kiEintragBauen(z, kopf); })
+      .filter(function (e) { return Object.keys(e).some(function (k) { return e[k]; }); });
     kiVorschauZeichnen();
+  }
+
+  function kiSpaltenBuchstabe(i) {
+    return i < 26 ? String.fromCharCode(65 + i) : "A" + String.fromCharCode(65 + i - 26);
+  }
+
+  function kiZuordnungHtml() {
+    var breite = kiTabelle.reduce(function (m, z) { return Math.max(m, z.length); }, 0);
+    var spalten = [];
+    for (var i = 0; i < breite; i++) {
+      var belegt = kiTabelle.some(function (z, zi) { return zi > kiKopfIndex && String(z[i] || "").trim(); });
+      if (belegt) spalten.push(i);
+    }
+    if (!spalten.length) return "";
+    var beispiel = function (i) {
+      var z = kiTabelle.filter(function (zz, zi) { return zi > kiKopfIndex && String(zz[i] || "").trim(); })[0];
+      return z ? String(z[i]).trim() : "";
+    };
+    return '<div class="ki-zuordnung"><b>Spalten zuordnen</b> – stimmt etwas nicht, hier von Hand ändern:' +
+      '<div class="tabellenrahmen"><table><tr>' +
+      spalten.map(function (i) {
+        var titel = kiKopfIndex >= 0 ? String(kiTabelle[kiKopfIndex][i] || "").trim() : "";
+        return "<th>Spalte " + kiSpaltenBuchstabe(i) + (titel ? "<br><span>" + escapeHtml(titel) + "</span>" : "") + "</th>";
+      }).join("") + "</tr><tr>" +
+      spalten.map(function (i) {
+        var feld = kiFeldFuer(i);
+        return '<td><select data-ki-spalte="' + i + '" aria-label="Spalte ' + kiSpaltenBuchstabe(i) + '">' +
+          KI_FELDER.map(function (f) { return '<option value="' + f[0] + '"' + (f[0] === feld ? " selected" : "") + ">" + f[1] + "</option>"; }).join("") +
+          '</select><small>z. B. ' + escapeHtml(beispiel(i).slice(0, 30)) + "</small></td>";
+      }).join("") + "</tr></table></div></div>";
   }
 
   function kiVorschauZeichnen() {
     if (!kiEintraegeAlle.length) {
-      elKiVorschau.innerHTML = "";
+      elKiVorschau.innerHTML = elKiText.value.trim()
+        ? '<div class="import-zusammenfassung">Keine Kundenzeilen gefunden.</div>' + kiZuordnungHtml()
+        : "";
       elKiImportierenKnopf.disabled = true;
+      kiZuordnungVerdrahten();
       return;
     }
 
@@ -669,28 +752,41 @@
         "<td>" + escapeHtml(e.adresse) + "</td><td>" + escapeHtml(e.email) + "</td><td>" + escapeHtml(e.notiz) + "</td></tr>";
     }).join("");
 
-    var hinweisKopf = kiKopfzeileErkannt
-      ? "Kopfzeile erkannt – Spalten automatisch zugeordnet."
+    var hinweisKopf = kiKopfIndex >= 0
+      ? "Kopfzeile erkannt (" + escapeHtml(kiTabelle[kiKopfIndex].map(function (z) { return String(z || "").trim(); })
+          .filter(Boolean).slice(0, 5).join(", ")) + " …) – Spalten automatisch zugeordnet."
       : "Keine Kopfzeile erkannt – Reihenfolge Name, Vorname, Telefon, Ort, Adresse, E-Mail angenommen.";
     var mehrHinweis = kiEintraegeAlle.length > 50 ? " (zeigt die ersten 50 von " + kiEintraegeAlle.length + ")" : "";
-    var namenHinweis = mitName.length + (mitName.length === 1 ? " Kunde wird importiert" : " Kunden werden importiert");
+    var namenHinweis = "<b>" + mitName.length + (mitName.length === 1 ? " Kundin" : " Kundinnen") + "</b> erkannt";
     if (ohneName) {
       namenHinweis += ", " + ohneName + " Zeile" + (ohneName === 1 ? "" : "n") +
         " ohne Namen wird" + (ohneName === 1 ? "" : "en") + " übersprungen (durchgestrichen)";
     }
 
     elKiVorschau.innerHTML =
-      '<div class="import-zusammenfassung">' + hinweisKopf + "<br>" + namenHinweis + mehrHinweis + "</div>" +
+      '<div class="import-zusammenfassung">' + hinweisKopf + "<br>" + namenHinweis + mehrHinweis +
+      ". Wer schon im Programm ist, wird nicht doppelt angelegt.</div>" +
+      kiZuordnungHtml() +
       '<div class="tabellenrahmen"><table class="auflistung"><thead><tr>' +
       "<th>Nr.</th><th>Name</th><th>Vorname</th><th>Telefon</th><th>Ort</th><th>Adresse</th><th>E-Mail</th><th>Notiz</th>" +
       "</tr></thead><tbody>" + zeilenHtml + "</tbody></table></div>";
 
     elKiImportierenKnopf.disabled = mitName.length === 0;
+    kiZuordnungVerdrahten();
+  }
+
+  function kiZuordnungVerdrahten() {
+    elKiVorschau.querySelectorAll("select[data-ki-spalte]").forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        kiVonHand[Number(sel.dataset.kiSpalte)] = sel.value;
+        kiNeuVerarbeiten(true);
+      });
+    });
   }
 
   document.getElementById("kundenImportKnopf").addEventListener("click", function () {
     elKiText.value = "";
-    elKiKopfzeile.checked = false;
+    kiVonHand = {};
     elKiVorschau.innerHTML = "";
     elKiFehler.hidden = true;
     elKiImportierenKnopf.disabled = true;
@@ -700,13 +796,13 @@
   });
   document.getElementById("ki-abbrechen").addEventListener("click", function () { elKiDialog.close(); });
   elKiText.addEventListener("input", debounce(function () { kiNeuVerarbeiten(false); }, 150));
-  elKiKopfzeile.addEventListener("change", function () { kiNeuVerarbeiten(true); });
   document.getElementById("ki-datei").addEventListener("click", function () {
     elKiFehler.hidden = true;
     dateiFuerImportLesen(
       elKiText,
       function () { kiNeuVerarbeiten(false); },
-      function (meldung) { elKiFehler.textContent = meldung; elKiFehler.hidden = false; }
+      function (meldung) { elKiFehler.textContent = meldung; elKiFehler.hidden = false; },
+      true
     );
   });
 
@@ -724,11 +820,12 @@
     elKiFehler.hidden = true;
     knopfSperren(elKiImportierenKnopf, true);
     invoke("kunden_importieren", { eingaben: eintraege })
-      .then(function (anzahl) {
+      .then(function (r) {
         elKiDialog.close();
         elSuche.value = "";
         suchtextSuchen();
-        alert(anzahl + (anzahl === 1 ? " Kunde wurde importiert." : " Kunden wurden importiert."));
+        alert(r.neu + (r.neu === 1 ? " Kundin wurde importiert." : " Kundinnen wurden importiert.") +
+          (r.doppelt ? "\n" + r.doppelt + " waren schon im Programm und wurden nicht doppelt angelegt." : ""));
       })
       .catch(function (e) {
         elKiFehler.textContent = fehlerText(e);

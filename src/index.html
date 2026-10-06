@@ -726,19 +726,16 @@
   <div class="dialog-karte dialog-karte-breit">
     <h2>Kunden importieren</h2>
     <p class="login-hinweis" style="margin-top:0">
-      In Excel oder LibreOffice Calc die Kundentabelle markieren, kopieren (Strg+C)
-      und hier unten einfügen (Strg+V) — am liebsten mit Kopfzeile
-      (z. B. Name, Vorname, Telefon, Ort, Adresse, E-Mail). Die Reihenfolge der
-      Spalten ist egal, sie wird automatisch erkannt. Fehlt eine Kopfzeile,
-      wird genau diese Reihenfolge angenommen.
+      <strong>Excel-Datei auswählen</strong> (alle Tabellenblätter werden gelesen) oder die Tabelle
+      kopieren und unten einfügen. Die Kopfzeile (Name, Vorname, Telefon, Ort …) wird selbst
+      gefunden, auch wenn darüber ein Titel steht. Unten bei <em>Spalten zuordnen</em> lässt sich jede
+      Spalte von Hand ändern – z. B. „Vorname Name“ in einer Spalte, PLZ und Ort getrennt, mehrere
+      Telefonnummern. Kundinnen, die schon im Programm sind, werden nicht doppelt angelegt.
     </p>
     <div class="knopfreihe" style="margin-top:0">
       <button type="button" class="knopf" id="ki-datei">Excel-/CSV-Datei auswählen…</button>
     </div>
-    <textarea id="ki-text" class="textarea-eingabe" rows="6" placeholder="Hier einfügen…"></textarea>
-    <label class="schalter" style="margin-top:10px">
-      <input type="checkbox" id="ki-kopfzeile"> Erste Zeile ist Kopfzeile (wird nicht importiert)
-    </label>
+    <textarea id="ki-text" class="textarea-eingabe" rows="5" placeholder="Hier einfügen…"></textarea>
     <div id="ki-vorschau"></div>
     <p id="ki-fehler" class="login-fehler" hidden></p>
     <div class="knopfreihe" style="justify-content:flex-end">

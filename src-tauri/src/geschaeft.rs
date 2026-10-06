@@ -219,15 +219,33 @@ pub fn kunde_anlegen(conn: &Connection, eingabe: NeuerKunde) -> Result<Kunde, Ge
 /// laufende Zaehler fuer kuenftige, manuell angelegte Kunden wird danach
 /// auf die hoechste uebernommene Nummer + 1 angehoben, damit es keine
 /// Kollision gibt.
-pub fn kunden_importieren(conn: &mut Connection, eingaben: Vec<NeuerKunde>) -> Result<usize, GeschaeftFehler> {
+pub fn kunden_importieren(conn: &mut Connection, eingaben: Vec<NeuerKunde>) -> Result<KundenImport, GeschaeftFehler> {
     let tx = conn.transaction()?;
-    let mut angelegt = 0usize;
+    let mut ergebnis_zaehler = KundenImport { neu: 0, doppelt: 0 };
     let mut hoechste_uebernommene_nummer: Option<i64> = None;
+
+    // Wer schon da ist (gleicher Name, Vorname und Telefon), wird nicht ein
+    // zweites Mal angelegt - so kann dieselbe Liste gefahrlos nochmals
+    // importiert werden, z.B. nachdem sie um neue Kundinnen ergaenzt wurde.
+    let mut bekannt: std::collections::HashSet<String> = std::collections::HashSet::new();
+    {
+        let mut stmt = tx.prepare("SELECT name, vorname, telefon FROM kunden")?;
+        let zeilen = stmt.query_map([], |z| Ok((z.get::<_, String>(0)?, z.get::<_, String>(1)?, z.get::<_, String>(2)?)))?;
+        for z in zeilen {
+            let (n, v, t) = z?;
+            bekannt.insert(kunden_schluessel(&n, &v, &t));
+        }
+    }
 
     for eingabe in eingaben {
         let name = eingabe.name.trim();
         if name.is_empty() {
             continue; // Zeile ohne Namen ueberspringen statt den ganzen Import abzubrechen
+        }
+        let schluessel = kunden_schluessel(name, &eingabe.vorname, &eingabe.telefon);
+        if bekannt.contains(&schluessel) {
+            ergebnis_zaehler.doppelt += 1;
+            continue;
         }
         let nummer = match eingabe.nummer {
             Some(n) => n,
@@ -249,7 +267,8 @@ pub fn kunden_importieren(conn: &mut Connection, eingaben: Vec<NeuerKunde>) -> R
         );
         match ergebnis {
             Ok(_) => {
-                angelegt += 1;
+                ergebnis_zaehler.neu += 1;
+                bekannt.insert(schluessel);
                 if eingabe.nummer.is_some() {
                     hoechste_uebernommene_nummer =
                         Some(hoechste_uebernommene_nummer.map_or(nummer, |bisher| bisher.max(nummer)));
@@ -258,7 +277,10 @@ pub fn kunden_importieren(conn: &mut Connection, eingaben: Vec<NeuerKunde>) -> R
             // "nummer" ist UNIQUE - eine doppelt vorkommende oder bereits
             // vergebene Nummer soll diese eine Zeile ueberspringen statt
             // den ganzen Import abzubrechen.
-            Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == ErrorCode::ConstraintViolation => continue,
+            Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == ErrorCode::ConstraintViolation => {
+                ergebnis_zaehler.doppelt += 1;
+                continue;
+            }
             Err(e) => return Err(e.into()),
         }
     }
@@ -272,7 +294,21 @@ pub fn kunden_importieren(conn: &mut Connection, eingaben: Vec<NeuerKunde>) -> R
     }
 
     tx.commit()?;
-    Ok(angelegt)
+    Ok(ergebnis_zaehler)
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct KundenImport {
+    pub neu: usize,
+    /// Schon vorhanden (gleiche Person oder Kundennummer schon vergeben).
+    pub doppelt: usize,
+}
+
+/// Name + Vorname (ohne Gross/Klein, Leerzeichen) + nur die Ziffern der
+/// Telefonnummer - "079 123 45 67" und "0791234567" gelten als gleich.
+fn kunden_schluessel(name: &str, vorname: &str, telefon: &str) -> String {
+    let ziffern: String = telefon.chars().filter(|c| c.is_ascii_digit()).collect();
+    format!("{}|{}|{}", name.trim().to_lowercase(), vorname.trim().to_lowercase(), ziffern)
 }
 
 const KUNDE_MIT_KENNZAHLEN_SQL: &str = r#"
@@ -615,7 +651,7 @@ mod tests {
             NeuerKunde { ort: "Freienbach".into(), ..neuer_kunde("  Keller  ", "Anna") },
         ];
 
-        let anzahl = kunden_importieren(&mut conn, eingaben).unwrap();
+        let anzahl = kunden_importieren(&mut conn, eingaben).unwrap().neu;
         assert_eq!(anzahl, 2, "die namenlose Zeile darf nicht mitgezaehlt werden");
 
         let kunden = kunden_suchen(&conn, "", false).unwrap();
@@ -638,7 +674,7 @@ mod tests {
             // Kein nummer -> automatisch vergeben, unabhaengig von den obigen.
             neuer_kunde("Ohne Nummer", ""),
         ];
-        let anzahl = kunden_importieren(&mut conn, eingaben).unwrap();
+        let anzahl = kunden_importieren(&mut conn, eingaben).unwrap().neu;
         assert_eq!(anzahl, 3);
 
         let kunden = kunden_suchen(&conn, "", false).unwrap();
@@ -667,9 +703,28 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(anzahl, 1, "nur die Zeile mit der neuen Nummer 501 zaehlt");
+        assert_eq!(anzahl, KundenImport { neu: 1, doppelt: 1 }, "nur die Zeile mit der neuen Nummer 501 zaehlt");
 
         let kunden = kunden_suchen(&conn, "", false).unwrap();
         assert_eq!(kunden.len(), 2); // "Erste" (500) + "Geht durch" (501), nicht "Kollidiert"
+    }
+
+    // Dieselbe Kundenliste nochmals importiert (inzwischen mit einer neuen
+    // Kundin): niemand wird doppelt angelegt, auch wenn die Telefonnummer
+    // anders geschrieben ist.
+    #[test]
+    fn erneuter_kunden_import_legt_niemanden_doppelt_an() {
+        let mut conn = test_db();
+        let liste = || vec![NeuerKunde { telefon: "079 123 45 67".into(), ..neuer_kunde("Meier", "Anna") }, neuer_kunde("Keller", "Beat")];
+        assert_eq!(kunden_importieren(&mut conn, liste()).unwrap(), KundenImport { neu: 2, doppelt: 0 });
+        let mut zweite = liste();
+        zweite[0].telefon = "0791234567".into();
+        zweite[1].name = "keller".into();
+        zweite.push(neuer_kunde("Neu", "Nina"));
+        assert_eq!(kunden_importieren(&mut conn, zweite).unwrap(), KundenImport { neu: 1, doppelt: 2 });
+        // Gleicher Name, andere Telefonnummer = andere Person.
+        let andere = vec![NeuerKunde { telefon: "055 000 00 00".into(), ..neuer_kunde("Meier", "Anna") }];
+        assert_eq!(kunden_importieren(&mut conn, andere).unwrap().neu, 1);
+        assert_eq!(kunden_suchen(&conn, "", false).unwrap().len(), 4);
     }
 }

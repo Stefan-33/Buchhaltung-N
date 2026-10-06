@@ -113,7 +113,7 @@ pub fn kunde_anlegen(zustand: State<AppZustand>, eingabe: NeuerKunde) -> Antwort
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn kunden_importieren(zustand: State<AppZustand>, eingaben: Vec<NeuerKunde>) -> Antwort<usize> {
+pub fn kunden_importieren(zustand: State<AppZustand>, eingaben: Vec<NeuerKunde>) -> Antwort<geschaeft::KundenImport> {
     let mut conn = verbindung_sperren(&zustand);
     geschaeft::kunden_importieren(&mut conn, eingaben).map_err(|e| e.to_string())
 }

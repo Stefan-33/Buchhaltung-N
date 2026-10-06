@@ -436,3 +436,12 @@ tr.thi-warn > td{background:var(--faden-matt);}
 .update-hinweis b{color:var(--gruen-tief);font-size:13.5px;}
 .update-hinweis span{color:var(--tinte-2);}
 .update-hinweis[hidden]{display:none;}
+
+/* ---------- Kunden importieren: Spalten zuordnen ---------- */
+.ki-zuordnung{margin:10px 0;display:grid;gap:6px;font-size:13.5px;}
+.ki-zuordnung table{border-collapse:collapse;}
+.ki-zuordnung th{font-size:12px;text-align:left;padding:4px 8px 2px;color:var(--tinte-2);font-weight:600;white-space:nowrap;}
+.ki-zuordnung th span{font-weight:400;color:var(--tinte);}
+.ki-zuordnung td{padding:2px 8px 6px;vertical-align:top;}
+.ki-zuordnung select{font-size:13px;padding:4px 6px;border:1px solid var(--linie-stark);border-radius:6px;background:var(--blatt);color:var(--tinte);}
+.ki-zuordnung small{display:block;margin-top:3px;color:var(--tinte-3);font-size:11.5px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;}
