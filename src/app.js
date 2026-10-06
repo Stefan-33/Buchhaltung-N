@@ -67,6 +67,7 @@
     beleg_titel_zusatz: "für Aenderungen / Reparaturen",
     beleg_dank: "Besten Dank",
     beleg_zahlungshinweis: "",
+    beleg_logo_zeigen: true,
   };
   function kartensatzText(wert) {
     return wert === null || wert === undefined || wert === "" ? "" : String(wert).replace(".", ",") + " %";
@@ -2126,8 +2127,8 @@
     var vorhanden = !!aktuelleEinstellungen.quittung_logo_pfad;
     document.getElementById("ei-logo-entfernen").hidden = !vorhanden;
     document.getElementById("ei-logo-name").textContent = vorhanden
-      ? "Hinterlegt: " + aktuelleEinstellungen.quittung_logo_pfad.split(/[\\/]/).pop()
-      : "Kein Logo hinterlegt.";
+      ? "Eigenes Logo: " + aktuelleEinstellungen.quittung_logo_pfad.split(/[\\/]/).pop()
+      : "Standard-Logo Nähservice Straub";
   }
 
   document.getElementById("ei-logo-waehlen").addEventListener("click", function () {
@@ -2282,6 +2283,7 @@
     document.getElementById("ei-beleg-titel-zusatz").value = aktuelleEinstellungen.beleg_titel_zusatz || "";
     document.getElementById("ei-beleg-dank").value = aktuelleEinstellungen.beleg_dank || "";
     document.getElementById("ei-beleg-zahlungshinweis").value = aktuelleEinstellungen.beleg_zahlungshinweis || "";
+    document.getElementById("ei-beleg-logo").checked = aktuelleEinstellungen.beleg_logo_zeigen !== false;
   }
 
   function belegFormularWerte() {
@@ -2292,6 +2294,7 @@
       beleg_titel_zusatz: document.getElementById("ei-beleg-titel-zusatz").value.trim(),
       beleg_dank: document.getElementById("ei-beleg-dank").value.trim(),
       beleg_zahlungshinweis: document.getElementById("ei-beleg-zahlungshinweis").value.trim(),
+      beleg_logo_zeigen: document.getElementById("ei-beleg-logo").checked,
     });
   }
 

@@ -24,15 +24,7 @@
 <div id="login-bildschirm" class="login-buehne" hidden inert>
   <form id="login-formular" class="login-karte" autocomplete="off">
     <div class="login-marke">
-      <svg viewBox="0 0 48 48" aria-hidden="true">
-        <rect width="48" height="48" rx="10" fill="#1c9b3b"/>
-        <g stroke="#fff" stroke-width="3.4" stroke-linecap="round" fill="none">
-          <line x1="15" y1="36" x2="33" y2="10"/><line x1="33" y1="36" x2="15" y2="10"/>
-          <circle cx="14.5" cy="37.5" r="4.6" stroke-width="3"/>
-          <circle cx="33.5" cy="37.5" r="4.6" stroke-width="3"/>
-        </g>
-        <circle cx="24" cy="25.4" r="2.1" fill="#fff"/>
-      </svg>
+      <img src="logo.png" alt="" class="marken-bild">
       <div>
         <strong>Atelierbuch</strong>
         <span>Nähservice Straub</span>
@@ -58,15 +50,7 @@
 <div id="einrichtung-bildschirm" class="login-buehne" hidden inert>
   <form id="einrichtung-formular" class="login-karte" autocomplete="off">
     <div class="login-marke">
-      <svg viewBox="0 0 48 48" aria-hidden="true">
-        <rect width="48" height="48" rx="10" fill="#1c9b3b"/>
-        <g stroke="#fff" stroke-width="3.4" stroke-linecap="round" fill="none">
-          <line x1="15" y1="36" x2="33" y2="10"/><line x1="33" y1="36" x2="15" y2="10"/>
-          <circle cx="14.5" cy="37.5" r="4.6" stroke-width="3"/>
-          <circle cx="33.5" cy="37.5" r="4.6" stroke-width="3"/>
-        </g>
-        <circle cx="24" cy="25.4" r="2.1" fill="#fff"/>
-      </svg>
+      <img src="logo.png" alt="" class="marken-bild">
       <div>
         <strong>Willkommen</strong>
         <span>Erstes Konto einrichten</span>
@@ -104,15 +88,7 @@
   <header class="kopf">
     <div class="kopf-innen">
       <div class="marke">
-        <svg viewBox="0 0 48 48" aria-hidden="true">
-          <rect width="48" height="48" rx="10" fill="#1c9b3b"/>
-          <g stroke="#fff" stroke-width="3.4" stroke-linecap="round" fill="none">
-            <line x1="15" y1="36" x2="33" y2="10"/><line x1="33" y1="36" x2="15" y2="10"/>
-            <circle cx="14.5" cy="37.5" r="4.6" stroke-width="3"/>
-            <circle cx="33.5" cy="37.5" r="4.6" stroke-width="3"/>
-          </g>
-          <circle cx="24" cy="25.4" r="2.1" fill="#fff"/>
-        </svg>
+        <img src="logo.png" alt="" class="marken-bild">
         <span class="marke-text">
           <strong>Atelierbuch</strong>
           <span>Nähservice Straub · Pfäffikon SZ</span>
@@ -522,10 +498,10 @@
           </p>
           <label class="feld"><span>Logo/Foto (erscheint oben auf der Quittung)</span></label>
           <div class="knopfreihe" style="margin-top:0">
-            <button type="button" class="knopf" id="ei-logo-waehlen">Logo/Foto auswählen…</button>
-            <button type="button" class="knopf" id="ei-logo-entfernen" hidden>Logo entfernen</button>
+            <button type="button" class="knopf" id="ei-logo-waehlen">Anderes Logo/Foto wählen…</button>
+            <button type="button" class="knopf" id="ei-logo-entfernen" hidden>Wieder Standard-Logo verwenden</button>
           </div>
-          <p id="ei-logo-name" style="font-size:13px;color:var(--tinte-2)">Kein Logo hinterlegt.</p>
+          <p id="ei-logo-name" style="font-size:13px;color:var(--tinte-2)">Standard-Logo Nähservice Straub</p>
           <p id="ei-geschaeft-fehler" class="login-fehler" hidden></p>
           <p id="ei-geschaeft-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
           <div class="knopfreihe">
@@ -550,6 +526,8 @@
             <button type="button" data-wert="A5" aria-pressed="true">A5</button>
             <button type="button" data-wert="A4" aria-pressed="false">A4</button>
           </div>
+          <label class="schalter" style="margin-top:14px">
+            <input type="checkbox" id="ei-beleg-logo"> Logo auf Belegen drucken</label>
           <label class="feld"><span>Farbe des Balkens (nur „Klassisch“)</span>
             <input id="ei-beleg-farbe" type="color" style="width:80px;height:38px;padding:2px"></label>
           <label class="feld"><span>Text neben dem Titel (nur „Klassisch“)</span><input id="ei-beleg-titel-zusatz" placeholder="für Aenderungen / Reparaturen"></label>

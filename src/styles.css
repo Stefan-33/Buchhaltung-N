@@ -62,7 +62,7 @@ input{font:inherit;color:inherit;}
 .kopf{position:sticky;top:0;z-index:20;background:var(--grund);border-bottom:1px solid var(--linie);}
 .kopf-innen{max-width:1280px;margin:0 auto;padding-inline:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-block:12px;}
 .marke{display:flex;align-items:center;gap:10px;}
-.marke svg{width:34px;height:34px;border-radius:8px;flex:none;}
+.marken-bild{width:34px;height:34px;border-radius:8px;flex:none;border:1px solid var(--linie);background:#fff;}
 .marke-text strong{font-family:Georgia,serif;font-size:17px;font-weight:600;display:block;}
 .marke-text span{font-size:12px;color:var(--tinte-2);letter-spacing:.02em;}
 
@@ -232,7 +232,7 @@ input{font:inherit;color:inherit;}
 .login-buehne:not([hidden]){position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--grund);z-index:100;}
 .login-karte{width:min(360px, 90vw);background:var(--blatt);border:1px solid var(--linie);border-radius:16px;box-shadow:var(--schatten);padding:28px 26px;}
 .login-marke{display:flex;align-items:center;gap:12px;margin-bottom:22px;}
-.login-marke svg{width:42px;height:42px;border-radius:10px;flex:none;}
+.login-marke .marken-bild{width:42px;height:42px;border-radius:10px;}
 .login-marke strong{font-family:Georgia,serif;font-size:19px;display:block;}
 .login-marke span{font-size:12.5px;color:var(--tinte-2);}
 .login-knopf{width:100%;justify-content:center;margin-top:6px;padding-block:11px;}

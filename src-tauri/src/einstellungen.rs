@@ -68,6 +68,9 @@ pub struct Einstellungen {
     pub beleg_dank: String,
     // Nur auf noch offenen Rechnungen gedruckt (z.B. Zahlungsfrist, IBAN).
     pub beleg_zahlungshinweis: String,
+    // Logo auf den Belegen drucken (ohne eigenes Logo: das eingebaute
+    // Standard-Logo von Naehservice Straub).
+    pub beleg_logo_zeigen: bool,
     // Saetze fuer die automatische Lohnabrechnung einer Mitarbeiterin
     // (treuhand.rs), in Prozent - aendern sich gelegentlich von Jahr zu
     // Jahr, darum hier einstellbar statt im Code fest einprogrammiert.
@@ -99,6 +102,7 @@ impl Default for Einstellungen {
             beleg_titel_zusatz: "für Aenderungen / Reparaturen".into(),
             beleg_dank: "Besten Dank".into(),
             beleg_zahlungshinweis: String::new(),
+            beleg_logo_zeigen: true,
             // Stand 2024/2025 fuer den Kanton Schwyz, genau wie in Stefans
             // bisheriger Lohnabrechnung-Excel (KTV/NBU bewusst nicht
             // automatisiert - bei ihm bisher ohne Abzug).
@@ -139,6 +143,7 @@ pub fn einstellungen_lesen(conn: &Connection) -> Result<Einstellungen, Einstellu
         beleg_titel_zusatz: lesen(conn, "beleg_titel_zusatz", &d.beleg_titel_zusatz)?,
         beleg_dank: lesen(conn, "beleg_dank", &d.beleg_dank)?,
         beleg_zahlungshinweis: lesen(conn, "beleg_zahlungshinweis", &d.beleg_zahlungshinweis)?,
+        beleg_logo_zeigen: lesen(conn, "beleg_logo_zeigen", "1")? != "0",
         lohn_ferienzuschlag_satz: lesen(conn, "lohn_ferienzuschlag_satz", &d.lohn_ferienzuschlag_satz.to_string())?
             .parse()
             .unwrap_or(d.lohn_ferienzuschlag_satz),
@@ -189,6 +194,7 @@ pub fn einstellungen_speichern(conn: &Connection, e: &Einstellungen) -> Result<(
     schreiben(conn, "beleg_titel_zusatz", e.beleg_titel_zusatz.trim())?;
     schreiben(conn, "beleg_dank", e.beleg_dank.trim())?;
     schreiben(conn, "beleg_zahlungshinweis", e.beleg_zahlungshinweis.trim())?;
+    schreiben(conn, "beleg_logo_zeigen", if e.beleg_logo_zeigen { "1" } else { "0" })?;
     schreiben(conn, "lohn_ferienzuschlag_satz", &e.lohn_ferienzuschlag_satz.to_string())?;
     schreiben(conn, "lohn_ahv_satz", &e.lohn_ahv_satz.to_string())?;
     schreiben(conn, "lohn_alv_satz", &e.lohn_alv_satz.to_string())?;

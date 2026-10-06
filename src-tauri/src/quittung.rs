@@ -303,19 +303,35 @@ fn seite_mm(e: &Einstellungen) -> (f32, f32) {
 
 /// Nur die reine PDF-Erzeugung, ohne Datei-/OS-Zugriff - damit sich das
 /// ohne echtes Drucker-/Betriebssystem-Verhalten testen laesst.
+/// Das Logo von Naehservice Straub (Puppe, Schere, Nadel, Nadelkissen),
+/// fest ins Programm eingebaut - erscheint auf jedem Beleg, solange kein
+/// eigenes Logo gewaehlt ist.
+const STANDARD_LOGO: &[u8] = include_bytes!("../assets/logo_standard.png");
+
+/// Welches Logo auf den Beleg kommt: das eigene (falls gewaehlt und
+/// lesbar), sonst das eingebaute Standard-Logo - oder keines, wenn
+/// "Logo drucken" ausgeschaltet ist.
+fn logo_bytes(e: &Einstellungen) -> Option<Vec<u8>> {
+    if !e.beleg_logo_zeigen {
+        return None;
+    }
+    e.quittung_logo_pfad
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+        .and_then(|p| std::fs::read(p).ok())
+        .or_else(|| Some(STANDARD_LOGO.to_vec()))
+}
+
 fn quittung_pdf_bytes(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen) -> Result<Vec<u8>, String> {
     let mut images: BTreeMap<String, Base64OrRaw> = BTreeMap::new();
     let mut logo_groesse_mm = None;
-    // Falls die Logo-Datei zwischenzeitlich verschoben/geloescht wurde oder
-    // kein gueltiges Bild (mehr) ist, die Quittung trotzdem ohne Logo
-    // erzeugen statt abzubrechen.
-    if let Some(logo_pfad) = e.quittung_logo_pfad.as_deref().filter(|p| !p.trim().is_empty()) {
-        if let Ok(bytes) = std::fs::read(logo_pfad) {
-            let mut bild_warnungen = Vec::new();
-            if let Ok(raw) = RawImage::decode_from_bytes(&bytes, &mut bild_warnungen) {
-                logo_groesse_mm = logo_abmessung_mm(raw.width, raw.height);
-                images.insert("logo".to_string(), Base64OrRaw::Raw(bytes));
-            }
+    // Ist die Datei kein gueltiges Bild (mehr), den Beleg trotzdem ohne
+    // Logo erzeugen statt abzubrechen.
+    if let Some(bytes) = logo_bytes(e) {
+        let mut bild_warnungen = Vec::new();
+        if let Ok(raw) = RawImage::decode_from_bytes(&bytes, &mut bild_warnungen) {
+            logo_groesse_mm = logo_abmessung_mm(raw.width, raw.height);
+            images.insert("logo".to_string(), Base64OrRaw::Raw(bytes));
         }
     }
     let html = quittung_html(auftrag, kunde, e, logo_groesse_mm);
@@ -528,6 +544,22 @@ mod tests {
             let html = quittung_html(&offen, &test_kunde(), &e, None);
             assert!(html.contains("Zahlbar innert 30 Tagen"), "{vorlage}");
         }
+    }
+
+    #[test]
+    fn ohne_eigenes_logo_kommt_das_eingebaute_standard_logo() {
+        let e = Einstellungen::default();
+        assert_eq!(logo_bytes(&e).as_deref(), Some(STANDARD_LOGO));
+        let mut warnungen = Vec::new();
+        let raw = RawImage::decode_from_bytes(STANDARD_LOGO, &mut warnungen).expect("Standard-Logo muss lesbar sein");
+        assert!(raw.width > 0 && raw.height > 0);
+
+        // Eigenes Logo verschwunden -> wieder das Standard-Logo statt keinem
+        let verschwunden = Einstellungen { quittung_logo_pfad: Some("/gibt/es/nicht.png".into()), ..Einstellungen::default() };
+        assert_eq!(logo_bytes(&verschwunden).as_deref(), Some(STANDARD_LOGO));
+
+        let aus = Einstellungen { beleg_logo_zeigen: false, ..Einstellungen::default() };
+        assert!(logo_bytes(&aus).is_none());
     }
 
     #[test]
