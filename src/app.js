@@ -1209,6 +1209,7 @@
           (verlaufZeilen
             ? '<table class="verlauf"><thead><tr><th>Datum</th><th>Arbeit</th><th class="re">Zahlart</th><th class="re">CHF</th></tr></thead><tbody>' + verlaufZeilen + "</tbody></table>"
             : '<p style="color:var(--tinte-2);font-size:14px;margin:0">Noch keine abgerechneten Aufträge.</p>') +
+          '<div id="altesArchiv"></div>' +
           "</div>"
         : "") +
       (blattAnsicht === "neu"
@@ -1291,6 +1292,7 @@
         });
     }
 
+    if (blattAnsicht === "verlauf" && aktuellerKunde) altesArchivLaden(aktuellerKunde.id);
     elBlatt.querySelectorAll("[data-schein]").forEach(function (b) {
       b.addEventListener("click", function () { auftragsscheinDrucken(Number(b.dataset.schein), aktuellerKunde.id, b); });
     });
@@ -3847,6 +3849,126 @@
       if (t.id === "r-treuhand") thLaden();
     });
   });
+
+  // ================= KUNDENORDNER EINLESEN =================
+  // Stefans bisherige Ablage: pro Kundin ein Ordner "Nummer Name" mit einer
+  // Excel-Datei, jedes Blatt eine Rechnung (kundenordner.rs). Hier: Ordner
+  // waehlen, Vorschau, einlesen. Die alten Rechnungen erscheinen danach im
+  // Kundenblatt unter "Verlauf" - ohne im Umsatz mitzuzaehlen.
+  var elKoDialog = document.getElementById("kundenordnerDialog");
+  var elKoVorschau = document.getElementById("ko-vorschau");
+  var elKoFehler = document.getElementById("ko-fehler");
+  var elKoKnopf = document.getElementById("ko-importieren");
+  var koPfad = null;
+
+  document.getElementById("kundenordnerKnopf").addEventListener("click", function () {
+    koPfad = null;
+    elKoVorschau.innerHTML = "";
+    elKoFehler.hidden = true;
+    elKoKnopf.disabled = true;
+    document.getElementById("ko-pfad").textContent = "";
+    elKoDialog.showModal();
+  });
+  document.getElementById("ko-abbrechen").addEventListener("click", function () { elKoDialog.close(); });
+
+  document.getElementById("ko-waehlen").addEventListener("click", function () {
+    if (!window.__TAURI__.dialog || !window.__TAURI__.dialog.open) return;
+    window.__TAURI__.dialog.open({ directory: true, multiple: false }).then(function (pfad) {
+      if (!pfad) return;
+      koPfad = pfad;
+      document.getElementById("ko-pfad").textContent = pfad;
+      elKoFehler.hidden = true;
+      elKoKnopf.disabled = true;
+      elKoVorschau.innerHTML = '<div class="import-zusammenfassung">Lese die Ordner … (bei vielen Kundinnen einige Sekunden)</div>';
+      invoke("kundenordner_vorschau", { pfad: pfad })
+        .then(koVorschauZeichnen)
+        .catch(function (e) { elKoVorschau.innerHTML = ""; elKoFehler.textContent = fehlerText(e); elKoFehler.hidden = false; });
+    });
+  });
+
+  function koVorschauZeichnen(liste) {
+    var kundinnen = liste.filter(function (k) { return k.nummer !== null || k.rechnungen > 0; });
+    var neu = kundinnen.filter(function (k) { return !k.vorhanden; }).length;
+    var rechnungen = kundinnen.reduce(function (s2, k) { return s2 + k.rechnungen; }, 0);
+    var dateien = kundinnen.reduce(function (s2, k) { return s2 + k.dateien; }, 0);
+    var ohne = liste.length - kundinnen.length;
+    var mitFehler = kundinnen.filter(function (k) { return k.fehler.length; });
+    elKoKnopf.disabled = !kundinnen.length;
+    if (!liste.length) {
+      elKoVorschau.innerHTML = '<div class="import-zusammenfassung">In diesem Ordner sind keine Unterordner – bitte den Ordner wählen, in dem die Kundenordner liegen (z. B. „Kunden 2026“).</div>';
+      return;
+    }
+    elKoVorschau.innerHTML =
+      '<div class="import-zusammenfassung"><b>' + kundinnen.length + " Kundenordner</b> gefunden: " +
+      neu + " neue Kundinnen, " + (kundinnen.length - neu) + " schon im Programm (werden ergänzt) · " +
+      "<b>" + rechnungen + " alte Rechnungen</b> · " + dateien + " Dateien." +
+      (ohne ? "<br>" + ohne + " Ordner ohne Nummer und ohne Rechnung werden übersprungen." : "") +
+      (mitFehler.length ? "<br><b>" + mitFehler.length + " Ordner mit unlesbarer Datei</b> – siehe Spalte „Hinweis“." : "") +
+      "<br>Die alten Rechnungen zählen nicht im Umsatz (der kommt aus der Treuhand-Excel).</div>" +
+      '<div class="tabellenrahmen" style="max-height:340px;overflow:auto"><table class="auflistung"><thead><tr>' +
+      '<th>Nr.</th><th>Name</th><th>Telefon</th><th>Ort</th><th class="re">Rechnungen</th><th class="re">CHF</th><th>Letzte</th><th>Hinweis</th>' +
+      "</tr></thead><tbody>" +
+      kundinnen.map(function (k) {
+        return "<tr><td>" + (k.nummer === null ? "neu" : k.nummer) + "</td><td>" + escapeHtml(k.name) + "</td><td>" + escapeHtml(k.telefon) +
+          "</td><td>" + escapeHtml(k.ort) + '</td><td class="re">' + k.rechnungen + '</td><td class="re">' + chf(k.summe) +
+          "</td><td>" + (k.letzte ? datumKurz(k.letzte) : "–") + "</td><td>" +
+          (k.vorhanden ? '<span class="status st-bereit">wird ergänzt</span> ' : "") +
+          escapeHtml(k.fehler.join("; ")) + "</td></tr>";
+      }).join("") + "</tbody></table></div>";
+  }
+
+  elKoKnopf.addEventListener("click", function () {
+    if (!koPfad) return;
+    elKoFehler.hidden = true;
+    knopfSperren(elKoKnopf, true);
+    invoke("kundenordner_importieren", { pfad: koPfad })
+      .then(function (r) {
+        elKoDialog.close();
+        elSuche.value = "";
+        suchtextSuchen();
+        alert("Eingelesen: " + r.neu + " neue Kundinnen, " + r.ergaenzt + " ergänzt, " + r.rechnungen + " alte Rechnungen, " + r.dateien + " Dateien.");
+      })
+      .catch(function (e) { elKoFehler.textContent = fehlerText(e); elKoFehler.hidden = false; })
+      .finally(function () { knopfSperren(elKoKnopf, false); });
+  });
+
+  // Im Kundenblatt unter "Verlauf": die frueheren Rechnungen aus dem alten
+  // Ordner und die Dateien daraus (oeffnen mit Excel & Co.).
+  function altesArchivLaden(kundeId) {
+    Promise.all([invoke("alte_rechnungen_von_kunde", { kunde_id: kundeId }), invoke("kunden_dateien_von_kunde", { kunde_id: kundeId })])
+      .then(function (e) {
+        var el = document.getElementById("altesArchiv");
+        if (!el || !aktuellerKunde || aktuellerKunde.id !== kundeId) return;
+        var rechnungen = e[0], dateien = e[1];
+        if (!rechnungen.length && !dateien.length) { el.innerHTML = ""; return; }
+        var total = rechnungen.reduce(function (s2, r) { return s2 + r.summe; }, 0);
+        el.innerHTML =
+          '<h3 class="altes-archiv-titel">Frühere Rechnungen <small>aus dem alten Kundenordner · ' + rechnungen.length +
+          " Rechnungen · CHF " + chf(total) + " · zählen nicht im Umsatz</small></h3>" +
+          (dateien.length
+            ? '<div class="knopfreihe" style="margin-top:0">' + dateien.map(function (d) {
+                return '<button type="button" class="knopf knopf-klein" data-datei-id="' + d.id + '">📄 ' + escapeHtml(d.dateiname) + "</button>";
+              }).join("") + "</div>"
+            : "") +
+          (rechnungen.length
+            ? '<table class="verlauf"><thead><tr><th>Datum</th><th>Arbeit</th><th class="re">Zahlart</th><th class="re">CHF</th></tr></thead><tbody>' +
+              rechnungen.map(function (r) {
+                return "<tr><td>" + (r.datum ? datumKurz(r.datum) : "–") + '</td><td class="alte-posten">' +
+                  escapeHtml(r.posten || "–").replace(/\n/g, "<br>") + '<br><small>' + escapeHtml(r.quelle) + "</small></td>" +
+                  '<td class="re">' + escapeHtml(r.zahlart || "–") + '</td><td class="re">' + chf(r.summe) + "</td></tr>";
+              }).join("") + "</tbody></table>"
+            : "");
+        el.querySelectorAll("[data-datei-id]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            knopfSperren(b, true);
+            invoke("kunden_datei_oeffnen", { id: Number(b.dataset.dateiId) })
+              .catch(function (err) { alert(fehlerText(err)); })
+              .finally(function () { knopfSperren(b, false); });
+          });
+        });
+      })
+      .catch(function () {});
+  }
 
   // ================= DATEN-UEBERGABE (anderer PC) =================
   // Stefan richtet auf seinem PC alles ein und gibt die Daten als eine

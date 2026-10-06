@@ -371,7 +371,8 @@ pub fn kunden_suchen(conn: &Connection, suchtext: &str, archiv_zeigen: bool) -> 
     let muster = format!("%{}%", suchtext.trim());
     let sql = format!(
         "{KUNDE_MIT_KENNZAHLEN_SQL}
-         WHERE (?1 = '' OR k.name LIKE ?2 OR k.vorname LIKE ?2 OR k.ort LIKE ?2 OR k.telefon LIKE ?2)
+         WHERE (?1 = '' OR k.name LIKE ?2 OR k.vorname LIKE ?2 OR k.ort LIKE ?2 OR k.telefon LIKE ?2
+                OR k.notiz LIKE ?2 OR CAST(k.nummer AS TEXT) = ?1)
            AND (?3 = 1 OR k.archiviert = 0)
          ORDER BY k.nummer"
     );

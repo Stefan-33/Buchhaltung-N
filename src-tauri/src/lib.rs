@@ -5,6 +5,7 @@ mod datei;
 mod db;
 mod einstellungen;
 mod geschaeft;
+mod kundenordner;
 mod mitarbeiter;
 mod preisliste;
 mod quittung;
@@ -86,6 +87,11 @@ pub fn run() {
             commands::treuhand_uebersicht,
             commands::update_pruefen,
             commands::datenpaket_erstellen,
+            commands::kundenordner_vorschau,
+            commands::kundenordner_importieren,
+            commands::alte_rechnungen_von_kunde,
+            commands::kunden_dateien_von_kunde,
+            commands::kunden_datei_oeffnen,
             commands::datenpaket_pruefen,
             commands::datenpaket_einspielen,
             commands::update_installieren,

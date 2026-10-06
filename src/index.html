@@ -185,6 +185,7 @@
             <div class="knopfreihe">
               <button class="knopf knopf-voll" id="neuerKundeKnopf">+ Neuer Kunde</button>
               <button class="knopf" id="kundenImportKnopf">Kunden importieren</button>
+              <button class="knopf" id="kundenordnerKnopf">Kundenordner einlesen …</button>
               <button class="knopf" id="exportListeBtn">Liste exportieren</button>
             </div>
             <div id="exportVorschau" hidden></div>
@@ -764,6 +765,31 @@
     <div class="knopfreihe" style="justify-content:flex-end">
       <button type="button" class="knopf" id="ki-abbrechen">Schliessen</button>
       <button type="button" class="knopf knopf-voll" id="ki-importieren" disabled>Importieren</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============ KUNDENORDNER EINLESEN (Dialog) ============ -->
+<dialog id="kundenordnerDialog" class="dialog">
+  <div class="dialog-karte dialog-karte-breit">
+    <h2>Kundenordner einlesen</h2>
+    <p class="login-hinweis" style="margin-top:0">
+      Den Ordner wählen, in dem die Kundenordner liegen (z. B. „Kunden 2026“). Jeder Ordner
+      „Nummer Name“ (z. B. „251 Bona“) wird eine Kundin mit dieser Nummer; aus der Excel-Datei
+      darin wird jedes Blatt als frühere Rechnung übernommen (Datum, Arbeiten, Total, Zahlart),
+      und die Dateien selbst werden gespeichert – im Kundenblatt unter „Verlauf“ öffnen sie sich
+      mit einem Klick. Kundinnen, die es schon gibt, werden nur ergänzt; zweimal einlesen legt
+      nichts doppelt an.
+    </p>
+    <div class="knopfreihe" style="margin-top:0">
+      <button type="button" class="knopf knopf-voll" id="ko-waehlen">Ordner auswählen …</button>
+      <span id="ko-pfad" style="font-size:13px;color:var(--tinte-2)"></span>
+    </div>
+    <div id="ko-vorschau"></div>
+    <p id="ko-fehler" class="login-fehler" hidden></p>
+    <div class="knopfreihe" style="justify-content:flex-end">
+      <button type="button" class="knopf" id="ko-abbrechen">Schliessen</button>
+      <button type="button" class="knopf knopf-voll" id="ko-importieren" disabled>Einlesen</button>
     </div>
   </div>
 </dialog>

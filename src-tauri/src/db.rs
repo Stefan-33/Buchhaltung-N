@@ -174,6 +174,33 @@ pub(crate) fn schema_anlegen(conn: &Connection) -> rusqlite::Result<()> {
             erstellt_am TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
+        -- Rechnungen aus Stefans bisherigen Kundenordnern (Excel, ein Blatt
+        -- pro Rechnung, kundenordner.rs). Nur zum Nachschauen im
+        -- Kundenblatt - zaehlen bewusst nicht im Umsatz.
+        CREATE TABLE IF NOT EXISTS alte_rechnungen (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            kunde_id    INTEGER NOT NULL REFERENCES kunden(id),
+            datum       TEXT NOT NULL DEFAULT '',
+            summe       REAL NOT NULL DEFAULT 0,
+            zahlart     TEXT NOT NULL DEFAULT '',
+            posten      TEXT NOT NULL DEFAULT '',
+            quelle      TEXT NOT NULL DEFAULT '',
+            erstellt_am TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_alte_rechnungen_kunde ON alte_rechnungen(kunde_id);
+
+        -- Die Dateien aus diesen Ordnern selbst (Excel, Fotos ...), damit sie
+        -- auch auf einem anderen PC noch aufgehen.
+        CREATE TABLE IF NOT EXISTS kunden_dateien (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            kunde_id    INTEGER NOT NULL REFERENCES kunden(id),
+            dateiname   TEXT NOT NULL,
+            inhalt      BLOB NOT NULL,
+            groesse     INTEGER NOT NULL,
+            erstellt_am TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_kunden_dateien_kunde ON kunden_dateien(kunde_id);
+
         CREATE TABLE IF NOT EXISTS mitarbeiter_formulare (
             benutzer_id INTEGER NOT NULL REFERENCES benutzer(id),
             formular    TEXT NOT NULL,

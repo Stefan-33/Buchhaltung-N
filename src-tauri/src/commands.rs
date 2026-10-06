@@ -479,3 +479,50 @@ pub fn datenpaket_einspielen(zustand: State<AppZustand>, pfad: String) -> Antwor
     }
     crate::uebergabe::datenpaket_einspielen(&mut conn, std::path::Path::new(&pfad))
 }
+
+// ---- Kundenordner einlesen (kundenordner.rs) ----
+// Das Lesen hunderter Excel-Dateien dauert einige Sekunden - darum im
+// Hintergrund, mit einer eigenen Datenbankverbindung, damit die
+// Oberflaeche nicht haengt.
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn kundenordner_vorschau(pfad: String) -> Antwort<Vec<crate::kundenordner::OrdnerVorschau>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = crate::db::verbinden().map_err(|e| e.to_string())?;
+        crate::kundenordner::vorschau(&conn, std::path::Path::new(&pfad))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn kundenordner_importieren(pfad: String) -> Antwort<crate::kundenordner::OrdnerImport> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut conn = crate::db::verbinden().map_err(|e| e.to_string())?;
+        conn.busy_timeout(std::time::Duration::from_secs(30)).map_err(|e| e.to_string())?;
+        crate::kundenordner::importieren(&mut conn, std::path::Path::new(&pfad))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn alte_rechnungen_von_kunde(zustand: State<AppZustand>, kunde_id: i64) -> Antwort<Vec<crate::kundenordner::AlteRechnung>> {
+    let conn = verbindung_sperren(&zustand);
+    crate::kundenordner::alte_rechnungen_von_kunde(&conn, kunde_id)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn kunden_dateien_von_kunde(zustand: State<AppZustand>, kunde_id: i64) -> Antwort<Vec<crate::kundenordner::KundenDatei>> {
+    let conn = verbindung_sperren(&zustand);
+    crate::kundenordner::dateien_von_kunde(&conn, kunde_id)
+}
+
+/// Oeffnet eine aus dem Kundenordner uebernommene Datei (z.B. die alte
+/// Excel-Rechnung) mit dem Standardprogramm.
+#[tauri::command(rename_all = "snake_case")]
+pub fn kunden_datei_oeffnen(zustand: State<AppZustand>, id: i64) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    let pfad = crate::kundenordner::datei_auspacken(&conn, id)?;
+    sicherung::mit_standardprogramm_oeffnen(&pfad)
+}

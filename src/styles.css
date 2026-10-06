@@ -448,3 +448,9 @@ tr.thi-warn > td{background:var(--faden-matt);}
 .thi-kontrolle .thi-breit{grid-column:1 / -1;}
 .schritte{margin:0 0 4px;padding-left:20px;display:grid;gap:4px;font-size:13.5px;color:var(--tinte-2);max-width:72ch;}
 .schritte b{color:var(--tinte);}
+
+/* ---------- Kundenblatt: frühere Rechnungen aus dem alten Ordner ---------- */
+.altes-archiv-titel{margin:22px 0 8px;font-size:14px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;}
+.altes-archiv-titel small{font-weight:400;color:var(--tinte-2);font-size:12.5px;text-transform:none;letter-spacing:0;font-family:inherit;}
+.alte-posten{font-size:13px;line-height:1.45;}
+.alte-posten small{color:var(--tinte-3);font-size:11.5px;}

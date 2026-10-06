@@ -103,7 +103,7 @@ fn csv_zeile_spalten(zeile: &str, trenner: char) -> Vec<String> {
     ergebnis.into_iter().map(|s| s.trim().to_string()).collect()
 }
 
-fn zelle_zu_text(zelle: &Data) -> String {
+pub(crate) fn zelle_zu_text(zelle: &Data) -> String {
     match zelle {
         Data::Empty => String::new(),
         Data::String(s) => s.trim().to_string(),
