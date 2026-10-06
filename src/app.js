@@ -34,6 +34,9 @@
     try { wert = localStorage.getItem("darstellung"); } catch (e) { wert = null; }
     if (wert === "hell") document.documentElement.setAttribute("data-theme", "light");
     else if (wert === "dunkel") document.documentElement.setAttribute("data-theme", "dark");
+    var schrift;
+    try { schrift = localStorage.getItem("schrift"); } catch (e) { schrift = null; }
+    if (schrift === "gross") document.documentElement.classList.add("schrift-gross");
   })();
 
   var invoke = window.__TAURI__.core.invoke;
@@ -119,6 +122,7 @@
     var istMitarbeiterin = rolle === "mitarbeiterin";
     document.getElementById("r-monat").hidden = istMitarbeiterin;
     document.getElementById("r-treuhand").hidden = istMitarbeiterin;
+    document.getElementById("gruppeAuswertung").hidden = istMitarbeiterin;
     document.getElementById("stAlleTafel").hidden = istMitarbeiterin;
     // Geschaeftsangaben und Kartengebuehr-Saetze gelten fuer den ganzen
     // Betrieb, nicht fuer eine einzelne Person - nur Papa/Mama aendern die.
@@ -819,8 +823,28 @@
 
   var STATUS_LAUFEND = ["Angenommen", "In Arbeit", "Abholbereit"];
 
+  // Feste Statusfarben, ueberall gleich: Angenommen grau, In Arbeit blau,
+  // Abholbereit gruen, ueberfaellig oder noch offen (unbezahlt) orange.
+  function statusArt(a) {
+    if (istUeberfaellig(a)) return "warn";
+    if (a.status === "Abgeholt") return a.bezahlt ? "" : "warn";
+    return { "In Arbeit": "arbeit", "Abholbereit": "bereit" }[a.status] || "angenommen";
+  }
+
+  function statusChip(a) {
+    var text = istUeberfaellig(a) ? "überfällig" : a.status === "Abgeholt" ? (a.bezahlt ? "bezahlt" : "offen") : a.status;
+    return '<span class="status st-' + (statusArt(a) || "angenommen") + '">' + escapeHtml(text) + "</span>";
+  }
+
+  // Farbstreifen links an einer Auftragszeile (Klassen fuer <tr>).
+  function streifenKlasse(a) {
+    var art = statusArt(a);
+    return art ? "streifen sf-" + art : "";
+  }
+
   function statusWahlHtml(a) {
-    return '<select class="status-wahl" data-status-id="' + a.id + '" aria-label="Status">' +
+    var art = { "In Arbeit": "arbeit", "Abholbereit": "bereit" }[a.status] || "angenommen";
+    return '<select class="status-wahl st-' + art + '" data-status-id="' + a.id + '" aria-label="Status">' +
       STATUS_LAUFEND.map(function (s) {
         return "<option" + (s === a.status ? " selected" : "") + ">" + s + "</option>";
       }).join("") + "</select>";
@@ -842,7 +866,7 @@
 
   function reiterOeffnen(id) { document.getElementById(id).click(); }
 
-  // Springt ins Kundenblatt (Reiter "Arbeiten") - mit "abrechnenId" direkt
+  // Springt ins Kundenblatt (Reiter "Kunden") - mit "abrechnenId" direkt
   // im Abrechnen-Modus fuer diesen laufenden Auftrag.
   function kundeOeffnen(kundeId, abrechnenId) {
     reiterOeffnen("r-arbeit");
@@ -858,9 +882,11 @@
   var zahlart = "Bar";
   var letzteQuittung = null; // gebuchter Auftrag, dessen Beleg gerade angezeigt/gedruckt wird
   var abrechnenAuftrag = null; // laufender Auftrag, der gerade abgerechnet wird (sonst: neuer Auftrag)
+  var blattAnsicht = "neu"; // Unterreiter im Kundenblatt: "neu", "laufend" oder "verlauf"
 
   function abrechnenStarten(a) {
     abrechnenAuftrag = a;
+    blattAnsicht = "neu";
     posten = a.posten.map(function (p) { return { bezeichnung: p.bezeichnung, stueck: p.stueck, preis: p.preis }; });
     if (!posten.length) posten = [neuePostenzeile()];
     zahlart = "Bar";
@@ -884,6 +910,10 @@
         var zuAbrechnen = abrechnenId
           ? aktuelleAuftraege.filter(function (a) { return a.id === abrechnenId && a.status !== "Abgeholt"; })[0]
           : null;
+        // Hat die Kundin laufende Auftraege, kommt sie meist zum Abholen -
+        // dann zuerst diese zeigen, sonst gleich die Erfassung.
+        var hatLaufende = aktuelleAuftraege.some(function (a) { return a.status !== "Abgeholt"; });
+        blattAnsicht = hatLaufende ? "laufend" : "neu";
         if (zuAbrechnen) abrechnenStarten(zuAbrechnen);
         else blattZeichnen();
       })
@@ -932,6 +962,20 @@
     );
   }
 
+  function unterreiterHtml(laufende, anzahlVerlauf) {
+    var ueberfaellig = laufende.some(istUeberfaellig);
+    var reiter = [
+      ["neu", abrechnenAuftrag ? "Abrechnen Nr. " + abrechnenAuftrag.rechnungsnummer : "Neuer Auftrag", ""],
+      ["laufend", "Laufend", '<span class="unterreiter-zahl' + (ueberfaellig ? " warn" : "") + '">' + laufende.length + "</span>"],
+      ["verlauf", "Verlauf", '<span class="unterreiter-zahl">' + anzahlVerlauf + "</span>"],
+    ];
+    return '<div class="unterreiter" role="tablist" aria-label="Kundenblatt">' +
+      reiter.map(function (r) {
+        return '<button type="button" role="tab" data-ansicht="' + r[0] + '" aria-selected="' + (blattAnsicht === r[0]) + '">' +
+          escapeHtml(r[1]) + " " + r[2] + "</button>";
+      }).join("") + "</div>";
+  }
+
   function blattZeichnen() {
     var k = aktuellerKunde;
     var summe = postenSumme();
@@ -950,7 +994,7 @@
           : "kein Abholdatum";
         var inArbeit = abrechnenAuftrag && abrechnenAuftrag.id === a.id;
         return (
-          "<tr><td>" + arbeitText(a) + '<br><span style="font-size:12px;color:var(--tinte-3)">Nr. ' + a.rechnungsnummer +
+          '<tr class="' + streifenKlasse(a) + '"><td>' + arbeitText(a) + '<br><span style="font-size:12px;color:var(--tinte-3)">Nr. ' + a.rechnungsnummer +
           " · angenommen " + datumKurz(a.angenommen_am || a.datum) + " · " + abholen + "</span></td>" +
           '<td class="re">' + statusWahlHtml(a) + "</td>" +
           '<td class="re">' + chf(a.summe) + "</td>" +
@@ -966,12 +1010,12 @@
       .filter(function (a) { return a.status === "Abgeholt"; })
       .map(function (a) {
         var offen = !a.bezahlt
-          ? ' <span class="zahlart za-offen">offen</span> <button type="button" class="knopf knopf-klein" data-bezahlt="' + a.id + '">bezahlt ✓</button>'
+          ? " " + statusChip(a) + ' <button type="button" class="knopf knopf-klein" data-bezahlt="' + a.id + '">bezahlt ✓</button>'
           : "";
         return (
-          '<tr><td class="zahl" style="white-space:nowrap;color:var(--tinte-2)">' + datumKurz(a.datum) + "</td>" +
+          '<tr class="' + streifenKlasse(a) + '"><td class="zahl" style="white-space:nowrap;color:var(--tinte-2)">' + datumKurz(a.datum) + "</td>" +
           "<td>" + arbeitText(a) + '<br><span style="font-size:12px;color:var(--tinte-3)">Nr. ' + a.rechnungsnummer + "</span></td>" +
-          '<td class="re"><span class="zahlart' + (a.zahlart === "Rechnung" ? " za-offen" : "") + '">' + escapeHtml(a.zahlart) + "</span>" + offen + "</td>" +
+          '<td class="re"><span class="zahlart">' + escapeHtml(a.zahlart) + "</span>" + offen + "</td>" +
           '<td class="re">' + chf(a.summe) + "</td></tr>"
         );
       })
@@ -1019,42 +1063,53 @@
         : "") +
       "</div>" +
       "</div>" +
-      (laufendZeilen
-        ? '<div class="abschnitt"><h3>Laufende Aufträge</h3>' +
-          '<table class="verlauf"><thead><tr><th>Arbeit</th><th class="re">Status</th><th class="re">CHF</th><th></th></tr></thead>' +
-          "<tbody>" + laufendZeilen + "</tbody></table></div>"
+      unterreiterHtml(laufende, aktuelleAuftraege.length - laufende.length) +
+      (blattAnsicht === "laufend"
+        ? '<div class="abschnitt">' +
+          (laufendZeilen
+            ? '<table class="verlauf"><thead><tr><th>Arbeit</th><th class="re">Status</th><th class="re">CHF</th><th></th></tr></thead>' +
+              "<tbody>" + laufendZeilen + "</tbody></table>"
+            : '<p style="color:var(--tinte-2);font-size:14px;margin:0">Keine laufenden Aufträge. Neue nimmst du unter „Neuer Auftrag“ ' +
+              "oder im Reiter „Aufträge“ an.</p>") +
+          "</div>"
         : "") +
-      '<div class="abschnitt" id="auftragEditor"><h3>' +
-      (abrechnenAuftrag ? "Auftrag Nr. " + abrechnenAuftrag.rechnungsnummer + " abrechnen" : "Neuer Auftrag") + "</h3>" +
-      (abrechnenAuftrag
-        ? '<p style="margin:-4px 0 10px;font-size:13px;color:var(--tinte-2)">Arbeiten und Preise bei Bedarf anpassen, Zahlart wählen. ' +
-          '<button type="button" class="knopf knopf-klein" id="abrechnenAbbrechen">Abbrechen</button></p>'
+      (blattAnsicht === "verlauf"
+        ? '<div class="abschnitt">' +
+          (verlaufZeilen
+            ? '<table class="verlauf"><thead><tr><th>Datum</th><th>Arbeit</th><th class="re">Zahlart</th><th class="re">CHF</th></tr></thead><tbody>' + verlaufZeilen + "</tbody></table>"
+            : '<p style="color:var(--tinte-2);font-size:14px;margin:0">Noch keine abgerechneten Aufträge.</p>') +
+          "</div>"
         : "") +
-      POSTEN_KOPF_HTML +
-      postenZeilen +
-      '<div class="knopfreihe"><button type="button" class="knopf" id="zeilePlus">+ Zeile</button></div>' +
-      '<div class="knopfreihe" style="margin-top:15px"><span style="font-size:13px;color:var(--tinte-2);font-weight:600">Bezahlt mit</span></div>' +
-      '<div class="zahlwahl" id="zahlwahl">' +
-      ZAHLARTEN.map(function (z) { return '<button type="button" data-z="' + z + '" aria-pressed="' + (z === zahlart) + '">' + z + "</button>"; }).join("") +
-      "</div>" +
-      (zahlart === "Karte" ? kartehinweisHtml(k) : "") +
-      '<div class="endsumme"><span>Total</span><b class="zahl">CHF ' + chf(summe) + "</b></div>" +
-      '<div class="knopfreihe">' +
-      '<button type="button" class="knopf knopf-voll" id="abschliessenKnopf"' + (summe <= 0 ? " disabled" : "") + ">" +
-      (abrechnenAuftrag ? "Abrechnen &amp; Beleg" : "Auftrag abschliessen &amp; Beleg") + "</button>" +
-      '<span id="fertigFehler" class="fehler"></span>' +
-      "</div>" +
-      (letzteQuittung
-        ? quittungHtml(letzteQuittung, k) +
-          '<div class="knopfreihe"><button type="button" class="knopf" id="druckenKnopf">Beleg drucken</button>' +
-          '<span id="druckenFehler" class="fehler" hidden></span></div>'
-        : "") +
-      "</div>" +
-      '<div class="abschnitt"><h3>Bisher bei uns</h3>' +
-      (verlaufZeilen
-        ? '<table class="verlauf"><thead><tr><th>Datum</th><th>Arbeit</th><th class="re">Zahlart</th><th class="re">CHF</th></tr></thead><tbody>' + verlaufZeilen + "</tbody></table>"
-        : '<p style="color:var(--tinte-2);font-size:14px;margin:0">Noch keine Aufträge erfasst.</p>') +
-      "</div>";
+      (blattAnsicht === "neu"
+        ? '<div class="abschnitt" id="auftragEditor">' +
+          (abrechnenAuftrag
+            ? '<p style="margin:0 0 10px;font-size:13px;color:var(--tinte-2)">Auftrag Nr. ' + abrechnenAuftrag.rechnungsnummer +
+              " abrechnen: Arbeiten und Preise bei Bedarf anpassen, Zahlart wählen. " +
+              '<button type="button" class="knopf knopf-klein" id="abrechnenAbbrechen">Abbrechen</button></p>'
+            : "") +
+          POSTEN_KOPF_HTML +
+          postenZeilen +
+          '<div class="knopfreihe"><button type="button" class="knopf" id="zeilePlus">+ Zeile</button></div>' +
+          '<div class="knopfreihe" style="margin-top:15px"><span style="font-size:13px;color:var(--tinte-2);font-weight:600">Bezahlt mit</span></div>' +
+          '<div class="zahlwahl" id="zahlwahl">' +
+          ZAHLARTEN.map(function (z) { return '<button type="button" data-z="' + z + '" aria-pressed="' + (z === zahlart) + '">' + z + "</button>"; }).join("") +
+          "</div>" +
+          (zahlart === "Karte" ? kartehinweisHtml(k) : "") +
+          // Mitlaufende Leiste: Total und Abschliessen bleiben sichtbar,
+          // auch wenn die Liste der Arbeiten lang wird.
+          '<div class="summenleiste">' +
+          '<button type="button" class="knopf knopf-voll" id="abschliessenKnopf"' + (summe <= 0 ? " disabled" : "") + ">" +
+          (abrechnenAuftrag ? "Abrechnen &amp; Beleg" : "Auftrag abschliessen &amp; Beleg") + "</button>" +
+          '<span id="fertigFehler" class="fehler"></span>' +
+          '<span class="summenleiste-total"><span>Total</span><b class="zahl">CHF ' + chf(summe) + "</b></span>" +
+          "</div>" +
+          "</div>" +
+          (letzteQuittung
+            ? '<div class="abschnitt">' + quittungHtml(letzteQuittung, k) +
+              '<div class="knopfreihe"><button type="button" class="knopf" id="druckenKnopf">Beleg drucken</button>' +
+              '<span id="druckenFehler" class="fehler" hidden></span></div></div>'
+            : "")
+        : "");
 
     verdrahten();
   }
@@ -1083,13 +1138,17 @@
       elBlatt,
       posten,
       function () {
-        var e = elBlatt.querySelector(".endsumme b");
+        var e = elBlatt.querySelector(".summenleiste-total b");
         if (e) e.textContent = "CHF " + chf(postenSumme());
         var knopf = document.getElementById("abschliessenKnopf");
         if (knopf) knopf.disabled = postenSumme() <= 0;
       },
       blattZeichnen
     );
+
+    elBlatt.querySelectorAll(".unterreiter [data-ansicht]").forEach(function (b) {
+      b.addEventListener("click", function () { blattAnsicht = b.dataset.ansicht; blattZeichnen(); });
+    });
 
     function kundeNeuLaden() {
       return Promise.all([invoke("kunde_holen", { id: aktuellerKunde.id }), invoke("auftraege_von_kunde", { kunde_id: aktuellerKunde.id })])
@@ -1113,6 +1172,7 @@
       abrechnenAbbrechen.addEventListener("click", function () {
         abrechnenAuftrag = null;
         posten = [neuePostenzeile()];
+        blattAnsicht = "laufend";
         blattZeichnen();
       });
     }
@@ -1175,6 +1235,7 @@
             aktuelleAuftraege = ergebnisse[1];
             blattZeichnen();
             suchtextSuchen(); // Betrag/Reihenfolge in der Liste links auffrischen
+            zaehlerAktualisieren();
           })
           .catch(function (e) {
             document.getElementById("fertigFehler").textContent = fehlerText(e);
@@ -2223,6 +2284,27 @@
     });
   });
 
+  // --- Schriftgroesse: "Gross" vergroessert Schrift und Knoepfe ueberall
+  // (Geraete-Einstellung wie Hell/Dunkel, nicht in der Datenbank) ---
+  var elEiSchrift = document.getElementById("eiSchrift");
+  function schriftAnwenden(wert) {
+    document.documentElement.classList.toggle("schrift-gross", wert === "gross");
+    elEiSchrift.querySelectorAll("button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.wert === wert));
+    });
+  }
+  (function () {
+    var gespeichert;
+    try { gespeichert = localStorage.getItem("schrift"); } catch (e) { gespeichert = null; }
+    schriftAnwenden(gespeichert === "gross" ? "gross" : "normal");
+  })();
+  elEiSchrift.querySelectorAll("button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      try { localStorage.setItem("schrift", b.dataset.wert); } catch (e) {}
+      schriftAnwenden(b.dataset.wert);
+    });
+  });
+
   // --- Geschäftsangaben (nur Papa/Mama sichtbar, siehe rolleAnwenden) ---
   document.getElementById("eiGeschaeftKnopf").addEventListener("click", function () {
     var elFehler = document.getElementById("ei-geschaeft-fehler");
@@ -2405,18 +2487,35 @@
   var MONATSNAMEN_LANG = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
   var WOCHENTAGE = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
 
+  // Eine Zeile pro Auftrag: Kundin, Arbeit und Telefon (zum Anrufen, wenn
+  // etwas fertig oder ueberfaellig ist), Status, Betrag und direkt
+  // "Abrechnen". Ein Klick auf die Zeile oeffnet das Kundenblatt.
   function kurzlisteHtml(zeilen, leerText) {
     if (!zeilen.length) return '<p style="margin:0;font-size:14px;color:var(--tinte-2)">' + leerText + "</p>";
     return '<table class="verlauf kurzliste"><tbody>' + zeilen.map(function (z) {
-      return '<tr class="klickzeile" data-kunde="' + z.kunde_id + '">' +
-        '<td style="white-space:nowrap">Nr. ' + z.rechnungsnummer + "</td>" +
-        "<td>" + escapeHtml(z.kunde_name) + ' <span style="color:var(--tinte-3);font-size:12px">Kd. ' + z.kunde_nummer + "</span><br>" +
-        '<span style="font-size:12.5px;color:var(--tinte-2)">' + escapeHtml(z.arbeit) + "</span></td>" +
-        '<td class="re"><span class="' + (istUeberfaellig(z) ? "ueberfaellig" : "") + '">' +
-        (z.abholdatum ? datumKurz(z.abholdatum) : "") + "</span><br>" +
-        '<span class="zahlart' + (z.status === "Abholbereit" ? "" : " za-offen") + '">' + escapeHtml(z.status) + "</span></td>" +
-        '<td class="re">' + chf(z.summe) + "</td></tr>";
+      return '<tr class="klickzeile ' + streifenKlasse(z) + '" data-kunde="' + z.kunde_id + '">' +
+        "<td><strong>" + escapeHtml(z.kunde_name) + '</strong> <span style="color:var(--tinte-3);font-size:12px">Kd. ' + z.kunde_nummer +
+        " · Nr. " + z.rechnungsnummer + "</span><br>" +
+        '<span style="font-size:12.5px;color:var(--tinte-2)">' + escapeHtml(z.arbeit) +
+        (z.kunde_telefon ? ' · <span class="telefon">' + escapeHtml(z.kunde_telefon) + "</span>" : "") + "</span></td>" +
+        '<td class="re">' + (z.abholdatum ? '<span style="font-size:12px;color:var(--tinte-3)">' + datumKurz(z.abholdatum) + "</span><br>" : "") +
+        statusChip(z) + "</td>" +
+        '<td class="re">' + chf(z.summe) + "</td>" +
+        '<td class="re"><button type="button" class="knopf knopf-voll knopf-klein" data-abr-kunde="' + z.kunde_id +
+        '" data-abr-id="' + z.id + '">Abrechnen</button></td></tr>';
     }).join("") + "</tbody></table>";
+  }
+
+  // Zahl der ueberfaelligen Auftraege in der Seitenleiste bei "Auftraege".
+  function zaehlerSetzen(ueberfaellig) {
+    var el = document.getElementById("zaehlerAuftraege");
+    el.textContent = ueberfaellig;
+    el.hidden = !ueberfaellig;
+    el.title = ueberfaellig + (ueberfaellig === 1 ? " überfälliger Auftrag" : " überfällige Aufträge");
+  }
+
+  function zaehlerAktualisieren() {
+    invoke("uebersicht").then(function (u) { zaehlerSetzen(u.ueberfaellig.length); }).catch(function () {});
   }
 
   function uebersichtLaden() {
@@ -2430,18 +2529,21 @@
 
     invoke("uebersicht")
       .then(function (u) {
+        zaehlerSetzen(u.ueberfaellig.length);
         var istInhaber = !aktuellerBenutzer || aktuellerBenutzer.rolle !== "mitarbeiterin";
         function kachel(wert, text, filter, klasse) {
           return '<button type="button" class="kachel kachel-knopf ' + (klasse || "") + '" data-filter="' + filter + '">' +
             "<b>" + wert + "</b><span>" + text + "</span></button>";
         }
         document.getElementById("startKacheln").innerHTML =
-          kachel(u.heute.length, "heute abholen", "laufend", u.heute.length ? "kachel-gut" : "") +
           kachel(u.ueberfaellig.length, "überfällig", "laufend", u.ueberfaellig.length ? "kachel-warn" : "") +
-          kachel(u.abholbereit_anzahl, "abholbereit", "abholbereit") +
+          kachel(u.abholbereit_anzahl, "abholbereit", "abholbereit", u.abholbereit_anzahl ? "kachel-gut" : "") +
           kachel(u.laufend_anzahl, "laufende Aufträge", "laufend") +
-          kachel(u.unbezahlt_anzahl + " · " + chf(u.unbezahlt_summe), "offene Posten (CHF)", "unbezahlt", u.unbezahlt_anzahl ? "kachel-warn" : "") +
-          (istInhaber ? kachel(chf(u.umsatz_monat), "Umsatz " + MONATSNAMEN_LANG[h.getMonth()], "alle") : "");
+          kachel(chf(u.unbezahlt_summe), u.unbezahlt_anzahl + (u.unbezahlt_anzahl === 1 ? " offener Posten (CHF)" : " offene Posten (CHF)"),
+            "unbezahlt", u.unbezahlt_anzahl ? "kachel-warn" : "") +
+          (istInhaber ? kachel(chf(u.umsatz_monat), "Umsatz " + MONATSNAMEN_LANG[h.getMonth()] + " (CHF)", "alle") : "");
+        document.getElementById("startHeuteTitel").textContent = "Heute abholen" + (u.heute.length ? " · " + u.heute.length : "");
+        document.getElementById("startUeberTitel").textContent = "Überfällig" + (u.ueberfaellig.length ? " · " + u.ueberfaellig.length : "");
         document.getElementById("startHeute").innerHTML = kurzlisteHtml(u.heute, "Heute ist nichts zum Abholen eingetragen.");
         document.getElementById("startUeberfaellig").innerHTML = kurzlisteHtml(u.ueberfaellig, "Nichts überfällig.");
 
@@ -2451,19 +2553,65 @@
         document.querySelectorAll("#t-start .klickzeile").forEach(function (tr) {
           tr.addEventListener("click", function () { kundeOeffnen(Number(tr.dataset.kunde)); });
         });
+        document.querySelectorAll("#t-start [data-abr-id]").forEach(function (b) {
+          b.addEventListener("click", function (ev) {
+            ev.stopPropagation(); // nicht zusaetzlich den Zeilen-Klick ausloesen
+            kundeOeffnen(Number(b.dataset.abrKunde), Number(b.dataset.abrId));
+          });
+        });
       })
       .catch(function (e) {
         document.getElementById("startKacheln").innerHTML = '<p class="fehler">' + fehlerText(e) + "</p>";
       });
   }
 
+  // Grosses Suchfeld: Name oder Kunden-Nr. tippen - Vorschlaege erscheinen
+  // darunter, Enter oeffnet direkt das Kundenblatt (bei einer Nummer genau
+  // diese Kundin, bei einem Namen den ersten Treffer).
+  var elStartSuche = document.getElementById("startSuche");
+  var elStartTreffer = document.getElementById("startTreffer");
+
+  function startTrefferZeigen(kunden, gesamt) {
+    elStartTreffer.innerHTML = kunden.map(function (k, i) {
+      return '<button type="button" class="knopf knopf-klein" data-start-treffer="' + i + '">Nr. ' + k.nummer + " · " +
+        escapeHtml(k.vorname + " " + k.name) + (k.ort ? " · " + escapeHtml(k.ort) : "") + "</button>";
+    }).join("") + (gesamt > kunden.length ? '<span style="font-size:12px;color:var(--tinte-2)">… genauer suchen</span>' : "");
+    elStartTreffer.querySelectorAll("[data-start-treffer]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        elStartSuche.value = "";
+        elStartTreffer.innerHTML = "";
+        kundeOeffnen(kunden[Number(b.dataset.startTreffer)].id);
+      });
+    });
+  }
+
+  function startSuchen(direktOeffnen) {
+    var text = elStartSuche.value.trim();
+    elStartTreffer.innerHTML = "";
+    if (!text) return;
+    function oeffnen(k) { elStartSuche.value = ""; elStartTreffer.innerHTML = ""; kundeOeffnen(k.id); }
+    if (/^\d+$/.test(text)) {
+      invoke("kunde_nach_nummer", { nummer: Number(text) })
+        .then(function (k) { if (direktOeffnen) oeffnen(k); else startTrefferZeigen([k], 1); })
+        .catch(function (e) { elStartTreffer.innerHTML = '<span class="fehler">' + fehlerText(e) + "</span>"; });
+      return;
+    }
+    invoke("kunden_suchen", { suchtext: text, archiv_zeigen: true }).then(function (kunden) {
+      if (!kunden.length) { elStartTreffer.innerHTML = '<span class="fehler">Niemand gefunden.</span>'; return; }
+      if (direktOeffnen) oeffnen(kunden[0]);
+      else startTrefferZeigen(kunden.slice(0, 6), kunden.length);
+    });
+  }
+
+  elStartSuche.addEventListener("input", debounce(function () { startSuchen(false); }, 200));
+  elStartSuche.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") { ev.preventDefault(); startSuchen(true); }
+    if (ev.key === "Escape") { elStartSuche.value = ""; elStartTreffer.innerHTML = ""; }
+  });
+
   document.getElementById("startNeuerAuftrag").addEventListener("click", function () {
     reiterOeffnen("r-auftraege");
     document.getElementById("au-kunde").focus();
-  });
-  document.getElementById("startKundeSuchen").addEventListener("click", function () {
-    reiterOeffnen("r-arbeit");
-    elSuche.focus();
   });
 
   // ================= AUFTRAEGE =================
@@ -2568,6 +2716,7 @@
   });
 
   function auListeLaden() {
+    zaehlerAktualisieren();
     document.querySelectorAll("#auFilter button").forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.dataset.filter === auFilter));
     });
@@ -2597,14 +2746,14 @@
           var alter = auFilter === "unbezahlt"
             ? ' <span style="font-size:12px;color:var(--tinte-3)">(' + z.alter_tage + (z.alter_tage === 1 ? " Tag" : " Tage") + ")</span>"
             : "";
-          return "<tr>" +
+          return '<tr class="' + streifenKlasse(z) + '">' +
             "<td>" + z.rechnungsnummer + "</td>" +
             '<td><button type="button" class="knopf knopf-klein" data-kunde-id="' + z.kunde_id + '" title="Kundenblatt öffnen">' +
             "Kd. " + z.kunde_nummer + " · " + escapeHtml(z.kunde_name) + "</button></td>" +
             "<td>" + escapeHtml(z.arbeit) + "</td>" +
             "<td>" + datumKurz(z.angenommen_am || z.datum) + alter + "</td>" +
             '<td class="' + (istUeberfaellig(z) ? "ueberfaellig" : "") + '">' + (z.abholdatum ? datumKurz(z.abholdatum) : "–") + "</td>" +
-            "<td>" + (laufend ? statusWahlHtml(z) : (z.bezahlt ? "Abgeholt" : '<span class="zahlart za-offen">offen</span>')) + "</td>" +
+            "<td>" + (laufend ? statusWahlHtml(z) + (istUeberfaellig(z) ? " " + statusChip(z) : "") : statusChip(z)) + "</td>" +
             '<td class="re">' + chf(z.summe) + "</td>" +
             "<td>" + aktion + "</td></tr>";
         }).join("");
@@ -2847,9 +2996,11 @@
   });
 
   // ================= REITER =================
-  document.querySelectorAll('[role="tab"]').forEach(function (t) {
+  // Nur die Bereiche der Seitenleiste - die Unterreiter im Kundenblatt
+  // sind ebenfalls role="tab", schalten aber nur innerhalb des Blatts um.
+  document.querySelectorAll('.seitenleiste [role="tab"]').forEach(function (t) {
     t.addEventListener("click", function () {
-      document.querySelectorAll('[role="tab"]').forEach(function (x) {
+      document.querySelectorAll('.seitenleiste [role="tab"]').forEach(function (x) {
         var an = x === t;
         x.setAttribute("aria-selected", an);
         document.getElementById(x.getAttribute("aria-controls")).hidden = !an;
@@ -2869,6 +3020,7 @@
     elBlatt.innerHTML = '<p class="leer" style="padding:40px">Links einen Kunden wählen oder „+ Neuer Kunde".</p>';
     auPostenZeichnen();
     preislisteVorschlaegeLaden();
+    zaehlerAktualisieren();
     reiterOeffnen("r-start");
   }
 })();

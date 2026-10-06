@@ -17,14 +17,20 @@
   --gruen-matt:#e4f2e6;
   --faden:#c85f30;
   --faden-matt:#f7e7de;
+  /* Gruen vom Rechnungs-Balken (Beleg-Design "Klassisch") als Auszeichnung,
+     Blau fuer "In Arbeit" - Statusfarben siehe unten. */
+  --rechnung:#92d050;
+  --blau:#2f6fb0;
+  --blau-matt:#e3edf8;
   --schatten:0 1px 2px rgba(35,40,31,.06), 0 8px 24px -12px rgba(35,40,31,.18);
+  --zoom:1;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --grund:#15170f; --blatt:#1d2019; --blatt-2:#272b22; --tinte:#eceadf;
     --tinte-2:#a5a996; --tinte-3:#7c8070; --linie:#343829; --linie-stark:#474c39;
     --gruen:#45c563; --gruen-tief:#8ddba0; --gruen-matt:#1d3322;
-    --faden:#e6906a; --faden-matt:#3a2a20;
+    --faden:#e6906a; --faden-matt:#3a2a20; --rechnung:#8cc653; --blau:#7fb0e6; --blau-matt:#1f2c3b;
     --schatten:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
   }
 }
@@ -34,7 +40,7 @@
   --grund:#15170f; --blatt:#1d2019; --blatt-2:#272b22; --tinte:#eceadf;
   --tinte-2:#a5a996; --tinte-3:#7c8070; --linie:#343829; --linie-stark:#474c39;
   --gruen:#45c563; --gruen-tief:#8ddba0; --gruen-matt:#1d3322;
-  --faden:#e6906a; --faden-matt:#3a2a20;
+  --faden:#e6906a; --faden-matt:#3a2a20; --rechnung:#8cc653; --blau:#7fb0e6; --blau-matt:#1f2c3b;
   --schatten:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
 }
 
@@ -56,25 +62,66 @@ button{font:inherit;color:inherit;cursor:pointer;}
 input{font:inherit;color:inherit;}
 .zahl{font-variant-numeric:tabular-nums;}
 
-.huelle{max-width:1280px;margin:0 auto;padding-inline:16px;padding-block:16px 48px;}
+.huelle{max-width:1280px;margin:0 auto;padding-inline:16px;padding-block:16px 48px;min-width:0;}
 
-/* ---------- Kopf ---------- */
-.kopf{position:sticky;top:0;z-index:20;background:var(--grund);border-bottom:1px solid var(--linie);}
-.kopf-innen{max-width:1280px;margin:0 auto;padding-inline:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-block:12px;}
-.marke{display:flex;align-items:center;gap:10px;}
+/* ---------- Seitenleiste ---------- */
+/* Links fest, nach Taetigkeit gruppiert. Unter 860px Breite wandert sie
+   als Leiste nach oben, damit auch ein kleines Fenster nutzbar bleibt.
+   Hoehe durch --zoom geteilt: bei "Grosse Schrift" ist alles um --zoom
+   vergroessert, die Leiste soll trotzdem genau das Fenster fuellen. */
+.layout{display:grid;grid-template-columns:212px minmax(0,1fr);align-items:start;}
+/* "margin:0 auto" laesst ein Rasterelement sonst nur so breit wie sein Inhalt werden. */
+.layout > .huelle{width:100%;}
+.seitenleiste{position:sticky;top:0;height:calc(100vh / var(--zoom));overflow-y:auto;display:flex;flex-direction:column;gap:14px;
+  background:var(--blatt);border-right:1px solid var(--linie);padding:16px 12px;}
+.marke{display:flex;align-items:center;gap:10px;padding:0 4px 12px;border-bottom:3px solid var(--rechnung);}
 .marken-bild{width:34px;height:34px;border-radius:8px;flex:none;border:1px solid var(--linie);background:#fff;}
-.marke-text strong{font-family:Georgia,serif;font-size:17px;font-weight:600;display:block;}
+.marke-text strong{font-family:Georgia,serif;font-size:17px;font-weight:600;display:block;line-height:1.1;}
 .marke-text span{font-size:12px;color:var(--tinte-2);letter-spacing:.02em;}
+.reiter{display:flex;flex-direction:column;gap:2px;}
+.reiter-gruppe{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--tinte-3);margin:12px 10px 4px;}
+.reiter-gruppe:first-child{margin-top:0;}
+.reiter button{display:flex;justify-content:space-between;align-items:center;gap:8px;border:0;background:none;text-align:left;
+  padding:8px 10px;border-radius:8px;font-size:14px;font-weight:500;color:var(--tinte-2);box-shadow:inset 3px 0 0 transparent;}
+.reiter button:hover{background:var(--blatt-2);color:var(--tinte);}
+.reiter button[aria-selected="true"]{background:var(--gruen-matt);color:var(--gruen-tief);font-weight:600;box-shadow:inset 3px 0 0 var(--rechnung);}
+.reiter button:focus-visible{outline:2px solid var(--gruen);outline-offset:1px;}
+.reiter-zaehler{font-size:11px;font-weight:700;background:var(--faden);color:#fff;border-radius:20px;padding:1px 7px;}
+.kopf-benutzer{margin-top:auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--tinte-2);
+  padding:12px 4px 0;border-top:1px solid var(--linie);}
+@media (max-width:860px){
+  .layout{grid-template-columns:minmax(0,1fr);}
+  .seitenleiste{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;border-right:0;border-bottom:1px solid var(--linie);padding:10px 12px;}
+  .marke{border-bottom:0;padding:0;}
+  .reiter{flex-direction:row;flex-wrap:wrap;}
+  .reiter-gruppe{display:none;}
+  .reiter button{padding:6px 10px;}
+  .kopf-benutzer{flex-direction:row;align-items:center;margin-left:auto;margin-top:0;padding:0;border-top:0;}
+}
 
-.reiter{display:flex;flex-wrap:wrap;gap:2px;background:var(--blatt-2);padding:3px;border-radius:9px;margin-left:24px;}
-.reiter button{border:0;background:none;padding:7px 12px;border-radius:7px;font-size:14px;font-weight:500;color:var(--tinte-2);}
-.reiter button[aria-selected="true"]{background:var(--blatt);color:var(--tinte);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08);}
+/* ---------- Grosse Schrift (Einstellungen -> Darstellung) ---------- */
+html.schrift-gross{--zoom:1.15;}
+html.schrift-gross body{zoom:var(--zoom);}
 
-.kopf-benutzer{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--tinte-2);}
+/* ---------- Statusfarben: ueberall gleich ---------- */
+/* Angenommen = grau, In Arbeit = blau, Abholbereit = gruen,
+   ueberfaellig / offen = orange. */
+.status{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap;}
+.st-angenommen{background:var(--blatt-2);color:var(--tinte-2);}
+.st-arbeit{background:var(--blau-matt);color:var(--blau);}
+.st-bereit{background:var(--gruen-matt);color:var(--gruen-tief);}
+.st-warn{background:var(--faden-matt);color:var(--faden);}
+select.status-wahl.st-angenommen, select.status-wahl.st-arbeit, select.status-wahl.st-bereit{font-weight:600;}
+/* Farbstreifen links an jeder Auftragszeile */
+tr.streifen > td:first-child{box-shadow:inset 4px 0 0 var(--streifen, transparent);padding-left:12px;}
+tr.sf-angenommen{--streifen:var(--linie-stark);}
+tr.sf-arbeit{--streifen:var(--blau);}
+tr.sf-bereit{--streifen:var(--gruen);}
+tr.sf-warn{--streifen:var(--faden);}
 
 /* ---------- Zweispalter ---------- */
 .arbeit{display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start;}
-@media (max-width:860px){.arbeit{grid-template-columns:1fr;}}
+@media (max-width:1080px){.arbeit{grid-template-columns:1fr;}}
 
 .tafel{background:var(--blatt);border:1px solid var(--linie);border-radius:13px;box-shadow:var(--schatten);}
 .tafel-kopf{padding:15px 17px 13px;border-bottom:1px solid var(--linie);}
@@ -301,6 +348,37 @@ input{font:inherit;color:inherit;}
 .knopf-klein{font-size:12px;padding:3px 10px;}
 .auftragsliste td:nth-child(3){white-space:normal;min-width:140px;}
 .auflistung .re{text-align:right;font-variant-numeric:tabular-nums;}
-.kurzliste td:first-child{width:90px;white-space:nowrap;}
-.kurzliste td:nth-child(3){width:130px;}
-.kurzliste td:nth-child(4){width:90px;}
+
+/* ---------- Kundenblatt: Unterreiter + mitlaufende Summenleiste ---------- */
+.unterreiter{display:flex;gap:2px;padding:0 17px;border-bottom:1px solid var(--linie);overflow-x:auto;}
+.unterreiter button{border:0;background:none;padding:11px 12px 9px;border-bottom:2px solid transparent;margin-bottom:-1px;
+  font-size:14px;font-weight:500;color:var(--tinte-2);white-space:nowrap;}
+.unterreiter button:hover{color:var(--tinte);}
+.unterreiter button[aria-selected="true"]{border-bottom-color:var(--gruen);color:var(--tinte);font-weight:600;}
+.unterreiter-zahl{display:inline-block;min-width:20px;text-align:center;font-size:11.5px;font-weight:700;padding:0 6px;border-radius:20px;
+  background:var(--blatt-2);color:var(--tinte-2);}
+.unterreiter-zahl.warn{background:var(--faden);color:#fff;}
+.summenleiste{position:sticky;bottom:0;z-index:2;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  margin:16px -17px -16px;padding:12px 17px;background:var(--gruen-matt);border-top:1px solid var(--linie);}
+#kundenblatt > .abschnitt:last-child .summenleiste{border-radius:0 0 12px 12px;}
+.summenleiste-total{margin-left:auto;display:flex;align-items:baseline;gap:12px;}
+.summenleiste-total span{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--tinte-2);font-weight:600;}
+.summenleiste-total b{font-family:Georgia,serif;font-size:27px;font-weight:700;color:var(--gruen-tief);}
+
+/* ---------- Uebersicht als Tagesblatt ---------- */
+.tagesblatt-kopf{border-bottom:3px solid var(--rechnung);}
+.gross-suche{padding:0;border-bottom:0;}
+.gross-suche input{font-size:17px;padding:13px 14px 13px 44px;border-width:2px;border-color:var(--gruen);background:var(--blatt);}
+.gross-suche svg{left:15px;width:20px;height:20px;}
+.tagesraster{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:20px;margin-top:20px;align-items:start;}
+@media (max-width:980px){.tagesraster{grid-template-columns:minmax(0,1fr);}.kacheln-spalte{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));}}
+.tageszahlen{display:grid;gap:12px;}
+.kacheln-spalte{grid-template-columns:minmax(0,1fr);gap:10px;}
+.kacheln-spalte .kachel{padding:11px 14px;}
+.kacheln-spalte .kachel b{font-size:21px;}
+.kurzliste td{vertical-align:middle;}
+.kurzliste td:first-child{width:auto;}
+.kurzliste td:nth-child(2){width:120px;}
+.kurzliste td:nth-child(3){width:80px;}
+.kurzliste td:nth-child(4){width:96px;}
+.telefon{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--tinte);}

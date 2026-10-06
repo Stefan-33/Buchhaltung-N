@@ -85,62 +85,76 @@
 <!-- ============ PROGRAMM ============ -->
 <div id="programm" hidden inert>
 
-  <header class="kopf">
-    <div class="kopf-innen">
-      <div class="marke">
-        <img src="logo.png" alt="" class="marken-bild">
-        <span class="marke-text">
-          <strong>Atelierbuch</strong>
-          <span>Nähservice Straub · Pfäffikon SZ</span>
-        </span>
-      </div>
-      <div class="reiter" role="tablist">
-        <button role="tab" id="r-start" aria-selected="true" aria-controls="t-start">Übersicht</button>
-        <button role="tab" id="r-arbeit" aria-selected="false" aria-controls="t-arbeit">Arbeiten</button>
-        <button role="tab" id="r-auftraege" aria-selected="false" aria-controls="t-auftraege">Aufträge</button>
-        <button role="tab" id="r-stunden" aria-selected="false" aria-controls="t-stunden">Stunden</button>
-        <button role="tab" id="r-monat" aria-selected="false" aria-controls="t-monat">Monat &amp; Jahr</button>
-        <button role="tab" id="r-treuhand" aria-selected="false" aria-controls="t-treuhand">Treuhand</button>
-        <button role="tab" id="r-preisliste" aria-selected="false" aria-controls="t-preisliste">Preisliste</button>
-        <button role="tab" id="r-einstellungen" aria-selected="false" aria-controls="t-einstellungen">Einstellungen</button>
-      </div>
-      <div class="kopf-benutzer">
-        <span id="angemeldet-als"></span>
-        <button class="knopf" id="abmeldenKnopf">Abmelden</button>
-      </div>
+  <div class="layout">
+  <!-- Seitenleiste statt Reiterleiste oben: nach Taetigkeit gruppiert, so
+       hat es auch Platz fuer weitere Bereiche. Die Knoepfe bleiben
+       role="tab" - die Umschalt-Logik in app.js bleibt dieselbe. -->
+  <nav class="seitenleiste" aria-label="Bereiche">
+    <div class="marke">
+      <img src="logo.png" alt="" class="marken-bild">
+      <span class="marke-text">
+        <strong>Atelierbuch</strong>
+        <span>Nähservice Straub</span>
+      </span>
     </div>
-  </header>
+    <div class="reiter" role="tablist" aria-orientation="vertical">
+      <span class="reiter-gruppe">Tagesgeschäft</span>
+      <button role="tab" id="r-start" aria-selected="true" aria-controls="t-start">Übersicht</button>
+      <button role="tab" id="r-arbeit" aria-selected="false" aria-controls="t-arbeit">Kunden</button>
+      <button role="tab" id="r-auftraege" aria-selected="false" aria-controls="t-auftraege">Aufträge
+        <span class="reiter-zaehler" id="zaehlerAuftraege" title="überfällig" hidden></span></button>
+      <span class="reiter-gruppe" id="gruppeAuswertung">Auswertung</span>
+      <button role="tab" id="r-monat" aria-selected="false" aria-controls="t-monat">Monat &amp; Jahr</button>
+      <button role="tab" id="r-treuhand" aria-selected="false" aria-controls="t-treuhand">Treuhand</button>
+      <span class="reiter-gruppe">Verwaltung</span>
+      <button role="tab" id="r-preisliste" aria-selected="false" aria-controls="t-preisliste">Preisliste</button>
+      <button role="tab" id="r-stunden" aria-selected="false" aria-controls="t-stunden">Stunden</button>
+      <button role="tab" id="r-einstellungen" aria-selected="false" aria-controls="t-einstellungen">Einstellungen</button>
+    </div>
+    <div class="kopf-benutzer">
+      <span id="angemeldet-als"></span>
+      <button class="knopf" id="abmeldenKnopf">Abmelden</button>
+    </div>
+  </nav>
 
   <main class="huelle">
 
     <!-- ============ UEBERSICHT (Startseite) ============ -->
     <section id="t-start" role="tabpanel" aria-labelledby="r-start">
       <div class="tafel">
-        <div class="tafel-kopf">
+        <div class="tafel-kopf tagesblatt-kopf">
           <h2 id="startTitel">Guten Tag</h2>
           <p id="startDatum"></p>
         </div>
         <div class="abschnitt">
-          <div class="kacheln" id="startKacheln"></div>
+          <div class="suchfeld gross-suche">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+            <input id="startSuche" type="search" autocomplete="off"
+              placeholder="Kundin suchen – Name oder Kunden-Nr., Enter öffnet das Kundenblatt" aria-label="Kundin suchen">
+          </div>
+          <div id="startTreffer" class="knopfreihe" style="margin-top:8px"></div>
         </div>
-        <div class="abschnitt">
-          <h3>Heute abholen</h3>
-          <div id="startHeute"></div>
-        </div>
-        <div class="abschnitt">
-          <h3>Überfällig</h3>
-          <div id="startUeberfaellig"></div>
-        </div>
-        <div class="abschnitt">
-          <div class="knopfreihe" style="margin-top:0">
-            <button class="knopf knopf-voll" id="startNeuerAuftrag">+ Neuer Auftrag</button>
-            <button class="knopf" id="startKundeSuchen">Kunde suchen</button>
+      </div>
+
+      <div class="tagesraster">
+        <div class="tafel">
+          <div class="abschnitt">
+            <h3 id="startHeuteTitel">Heute abholen</h3>
+            <div id="startHeute"></div>
+          </div>
+          <div class="abschnitt">
+            <h3 id="startUeberTitel">Überfällig</h3>
+            <div id="startUeberfaellig"></div>
           </div>
         </div>
+        <aside class="tageszahlen" aria-label="Kennzahlen">
+          <div class="kacheln kacheln-spalte" id="startKacheln"></div>
+          <button class="knopf knopf-voll" id="startNeuerAuftrag">+ Neuer Auftrag</button>
+        </aside>
       </div>
     </section>
 
-    <!-- ============ ARBEITEN ============ -->
+    <!-- ============ KUNDEN (frueher "Arbeiten") ============ -->
     <section id="t-arbeit" role="tabpanel" aria-labelledby="r-arbeit" hidden>
       <div class="arbeit">
 
@@ -175,13 +189,13 @@
 
     <!-- ============ AUFTRAEGE ============ -->
     <!-- Annahme eines Auftrags (Kleidungsstueck wird abgegeben). Abgerechnet
-         wird beim Abholen im Kundenblatt (Reiter "Arbeiten") - Auftrag und
+         wird beim Abholen im Kundenblatt (Reiter "Kunden") - Auftrag und
          Rechnung tragen dieselbe Nummer und haengen an der Kunden-Nr. -->
     <section id="t-auftraege" role="tabpanel" aria-labelledby="r-auftraege" hidden>
       <div class="tafel">
         <div class="tafel-kopf">
           <h2>Neuer Auftrag</h2>
-          <p>Bei der Annahme erfassen – abgerechnet wird beim Abholen im Kundenblatt (Reiter „Arbeiten“)</p>
+          <p>Bei der Annahme erfassen – abgerechnet wird beim Abholen im Kundenblatt (Reiter „Kunden“)</p>
         </div>
         <div class="abschnitt">
           <label class="feld" style="margin-top:0"><span>Kunden-Nr. oder Name</span>
@@ -465,13 +479,18 @@
         <div class="tafel">
           <div class="tafel-kopf">
             <h2>Darstellung</h2>
-            <p>Hell, dunkel oder automatisch nach Windows-Einstellung</p>
+            <p>Hell oder dunkel und Schriftgrösse – gilt nur für diesen PC</p>
           </div>
           <div class="abschnitt">
-            <div class="zahlwahl" id="eiDarstellung">
+            <div class="zahlwahl" id="eiDarstellung" style="margin-top:0">
               <button type="button" data-wert="automatisch">Automatisch</button>
               <button type="button" data-wert="hell">Hell</button>
               <button type="button" data-wert="dunkel">Dunkel</button>
+            </div>
+            <div class="knopfreihe"><span style="font-size:12.5px;font-weight:600;color:var(--tinte-2)">Schriftgrösse</span></div>
+            <div class="zahlwahl" id="eiSchrift">
+              <button type="button" data-wert="normal">Normal</button>
+              <button type="button" data-wert="gross">Gross</button>
             </div>
           </div>
         </div>
@@ -598,6 +617,7 @@
     </section>
 
   </main>
+  </div>
 </div>
 
 <!-- ============ NEUER KUNDE (Dialog) ============ -->

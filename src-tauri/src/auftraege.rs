@@ -34,6 +34,7 @@ pub struct AuftragZeile {
     pub kunde_id: i64,
     pub kunde_nummer: i64,
     pub kunde_name: String,
+    pub kunde_telefon: String,
     pub datum: String,
     pub angenommen_am: Option<String>,
     pub abholdatum: Option<String>,
@@ -179,7 +180,8 @@ const ZEILE_SQL: &str = r#"
            a.datum, a.angenommen_am, a.abholdatum, a.status, a.zahlart, a.summe, a.bezahlt,
            COALESCE((SELECT p.bezeichnung FROM auftrag_posten p WHERE p.auftrag_id = a.id ORDER BY p.id LIMIT 1), ''),
            (SELECT COUNT(*) FROM auftrag_posten p WHERE p.auftrag_id = a.id),
-           CAST(julianday(date('now', 'localtime')) - julianday(a.datum) AS INTEGER)
+           CAST(julianday(date('now', 'localtime')) - julianday(a.datum) AS INTEGER),
+           k.telefon
     FROM auftraege a JOIN kunden k ON k.id = a.kunde_id
 "#;
 
@@ -193,6 +195,7 @@ fn zeile_lesen(z: &rusqlite::Row) -> rusqlite::Result<AuftragZeile> {
         kunde_id: z.get(2)?,
         kunde_nummer: z.get(3)?,
         kunde_name: z.get(4)?,
+        kunde_telefon: z.get(15)?,
         datum: z.get(5)?,
         angenommen_am: z.get(6)?,
         abholdatum: z.get(7)?,
