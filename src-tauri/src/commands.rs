@@ -351,3 +351,12 @@ pub fn preisliste_importieren(zustand: State<AppZustand>, eingaben: Vec<NeuerPre
     let mut conn = verbindung_sperren(&zustand);
     preisliste::preisliste_importieren(&mut conn, eingaben).map_err(|e| e.to_string())
 }
+
+/// "Beleg-Design -> Muster ansehen": Beispiel-Beleg mit den (noch nicht
+/// gespeicherten) Einstellungen aus dem Formular erzeugen und oeffnen.
+#[tauri::command(rename_all = "snake_case")]
+pub fn beleg_muster_oeffnen(eingabe: Einstellungen) -> Antwort<String> {
+    let pfad = quittung::muster_pdf_erzeugen(&eingabe)?;
+    sicherung::mit_standardprogramm_oeffnen(&pfad)?;
+    Ok(pfad.display().to_string())
+}

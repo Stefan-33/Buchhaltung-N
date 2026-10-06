@@ -512,6 +512,7 @@
           <label class="feld"><span>Zweite Zeile (z. B. Tätigkeit, Inhaberin)</span><input id="ei-geschaeft-zeile2"></label>
           <label class="feld"><span>Adresse</span><input id="ei-geschaeft-adresse"></label>
           <label class="feld"><span>Telefon</span><input id="ei-geschaeft-telefon"></label>
+          <label class="feld"><span>E-Mail</span><input id="ei-geschaeft-email" type="email"></label>
           <label class="feld"><span>Website</span><input id="ei-geschaeft-web"></label>
           <label class="feld"><span>Kleingedrucktes Zeile 1 (auf der Quittung)</span><input id="ei-quittung-hinweis1"></label>
           <label class="feld"><span>Kleingedrucktes Zeile 2 (auf der Quittung)</span><input id="ei-quittung-hinweis2"></label>
@@ -529,6 +530,40 @@
           <p id="ei-geschaeft-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
           <div class="knopfreihe">
             <button class="knopf knopf-voll" id="eiGeschaeftKnopf">Speichern</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tafel" id="eiBelegTafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2>Beleg-Design</h2>
+          <p>Aussehen von Quittung und Rechnung – mit „Muster ansehen“ vor dem Speichern ausprobieren</p>
+        </div>
+        <div class="abschnitt">
+          <div class="knopfreihe" style="margin-top:0"><span style="font-size:12.5px;font-weight:600;color:var(--tinte-2)">Vorlage</span></div>
+          <div class="zahlwahl" id="eiBelegVorlage">
+            <button type="button" data-wert="klassisch" aria-pressed="true">Klassisch (wie die bisherige Excel-Rechnung)</button>
+            <button type="button" data-wert="schlicht" aria-pressed="false">Schlicht</button>
+          </div>
+          <div class="knopfreihe"><span style="font-size:12.5px;font-weight:600;color:var(--tinte-2)">Papierformat</span></div>
+          <div class="zahlwahl" id="eiBelegFormat">
+            <button type="button" data-wert="A5" aria-pressed="true">A5</button>
+            <button type="button" data-wert="A4" aria-pressed="false">A4</button>
+          </div>
+          <label class="feld"><span>Farbe des Balkens (nur „Klassisch“)</span>
+            <input id="ei-beleg-farbe" type="color" style="width:80px;height:38px;padding:2px"></label>
+          <label class="feld"><span>Text neben dem Titel (nur „Klassisch“)</span><input id="ei-beleg-titel-zusatz" placeholder="für Aenderungen / Reparaturen"></label>
+          <label class="feld"><span>Dankeszeile beim Total (nur „Klassisch“)</span><input id="ei-beleg-dank" placeholder="Besten Dank"></label>
+          <label class="feld"><span>Zahlungshinweis – nur auf offenen Rechnungen</span>
+            <input id="ei-beleg-zahlungshinweis" placeholder="z. B. Zahlbar innert 30 Tagen · IBAN CH.."></label>
+          <p class="login-hinweis" style="margin-top:6px">
+            Logo, Adresse, Telefon und Kleingedrucktes stellst du oben bei „Geschäftsangaben“ ein.
+          </p>
+          <p id="ei-beleg-fehler" class="login-fehler" hidden></p>
+          <p id="ei-beleg-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="eiBelegKnopf">Speichern</button>
+            <button class="knopf" id="eiBelegMusterKnopf">Muster ansehen (PDF)</button>
           </div>
         </div>
       </div>

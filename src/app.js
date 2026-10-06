@@ -59,6 +59,14 @@
     lohn_ferienzuschlag_satz: 8.33,
     lohn_ahv_satz: 5.3,
     lohn_alv_satz: 1.1,
+    quittung_logo_pfad: null,
+    geschaeft_email: "",
+    beleg_vorlage: "klassisch",
+    beleg_format: "A5",
+    beleg_farbe: "#92D050",
+    beleg_titel_zusatz: "für Aenderungen / Reparaturen",
+    beleg_dank: "Besten Dank",
+    beleg_zahlungshinweis: "",
   };
   function kartensatzText(wert) {
     return wert === null || wert === undefined || wert === "" ? "" : String(wert).replace(".", ",") + " %";
@@ -116,6 +124,7 @@
     document.getElementById("eiGeschaeftTafel").hidden = istMitarbeiterin;
     document.getElementById("eiKartenTafel").hidden = istMitarbeiterin;
     document.getElementById("eiLohnTafel").hidden = istMitarbeiterin;
+    document.getElementById("eiBelegTafel").hidden = istMitarbeiterin;
     if (istMitarbeiterin) {
       // Falls von einem frueheren Login noch der Monat-Reiter aktiv war.
       document.getElementById("r-start").click();
@@ -2100,6 +2109,8 @@
     document.getElementById("ei-geschaeft-adresse").value = aktuelleEinstellungen.geschaeft_adresse;
     document.getElementById("ei-geschaeft-telefon").value = aktuelleEinstellungen.geschaeft_telefon;
     document.getElementById("ei-geschaeft-web").value = aktuelleEinstellungen.geschaeft_web;
+    document.getElementById("ei-geschaeft-email").value = aktuelleEinstellungen.geschaeft_email || "";
+    belegFormularFuellen();
     document.getElementById("ei-quittung-hinweis1").value = aktuelleEinstellungen.quittung_hinweis1;
     document.getElementById("ei-quittung-hinweis2").value = aktuelleEinstellungen.quittung_hinweis2;
     einstellungenLogoAnzeigen();
@@ -2229,6 +2240,7 @@
       geschaeft_adresse: document.getElementById("ei-geschaeft-adresse").value.trim(),
       geschaeft_telefon: document.getElementById("ei-geschaeft-telefon").value.trim(),
       geschaeft_web: document.getElementById("ei-geschaeft-web").value.trim(),
+      geschaeft_email: document.getElementById("ei-geschaeft-email").value.trim(),
       quittung_hinweis1: document.getElementById("ei-quittung-hinweis1").value.trim(),
       quittung_hinweis2: document.getElementById("ei-quittung-hinweis2").value.trim(),
     });
@@ -2240,6 +2252,73 @@
         elErfolg.textContent = "Gespeichert.";
         elErfolg.hidden = false;
       })
+      .catch(function (e) { elFehler.textContent = fehlerText(e); elFehler.hidden = false; })
+      .finally(function () { knopfSperren(knopf, false); });
+  });
+
+  // --- Beleg-Design (nur Papa/Mama sichtbar) ---
+  // Vorlage "Klassisch" = Layout der bisherigen Excel-Rechnung, "Schlicht"
+  // = einfaches Layout ohne Linien. "Muster ansehen" erzeugt eine echte
+  // PDF mit den Werten aus dem Formular, noch bevor gespeichert wird.
+  function wahlSetzen(id, wert) {
+    document.querySelectorAll("#" + id + " button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.wert === wert));
+    });
+  }
+  function wahlLesen(id) {
+    var b = document.querySelector("#" + id + ' button[aria-pressed="true"]');
+    return b ? b.dataset.wert : "";
+  }
+  ["eiBelegVorlage", "eiBelegFormat"].forEach(function (id) {
+    document.querySelectorAll("#" + id + " button").forEach(function (b) {
+      b.addEventListener("click", function () { wahlSetzen(id, b.dataset.wert); });
+    });
+  });
+
+  function belegFormularFuellen() {
+    wahlSetzen("eiBelegVorlage", aktuelleEinstellungen.beleg_vorlage || "klassisch");
+    wahlSetzen("eiBelegFormat", aktuelleEinstellungen.beleg_format || "A5");
+    document.getElementById("ei-beleg-farbe").value = (aktuelleEinstellungen.beleg_farbe || "#92D050").toLowerCase();
+    document.getElementById("ei-beleg-titel-zusatz").value = aktuelleEinstellungen.beleg_titel_zusatz || "";
+    document.getElementById("ei-beleg-dank").value = aktuelleEinstellungen.beleg_dank || "";
+    document.getElementById("ei-beleg-zahlungshinweis").value = aktuelleEinstellungen.beleg_zahlungshinweis || "";
+  }
+
+  function belegFormularWerte() {
+    return Object.assign({}, aktuelleEinstellungen, {
+      beleg_vorlage: wahlLesen("eiBelegVorlage"),
+      beleg_format: wahlLesen("eiBelegFormat"),
+      beleg_farbe: document.getElementById("ei-beleg-farbe").value.toUpperCase(),
+      beleg_titel_zusatz: document.getElementById("ei-beleg-titel-zusatz").value.trim(),
+      beleg_dank: document.getElementById("ei-beleg-dank").value.trim(),
+      beleg_zahlungshinweis: document.getElementById("ei-beleg-zahlungshinweis").value.trim(),
+    });
+  }
+
+  document.getElementById("eiBelegKnopf").addEventListener("click", function () {
+    var elFehler = document.getElementById("ei-beleg-fehler");
+    var elErfolg = document.getElementById("ei-beleg-erfolg");
+    elFehler.hidden = true;
+    elErfolg.hidden = true;
+    var neu = belegFormularWerte();
+    var knopf = document.getElementById("eiBelegKnopf");
+    knopfSperren(knopf, true);
+    invoke("einstellungen_speichern", { eingabe: neu })
+      .then(function () {
+        aktuelleEinstellungen = neu;
+        elErfolg.textContent = "Gespeichert – gilt ab dem nächsten Beleg.";
+        elErfolg.hidden = false;
+      })
+      .catch(function (e) { elFehler.textContent = fehlerText(e); elFehler.hidden = false; })
+      .finally(function () { knopfSperren(knopf, false); });
+  });
+
+  document.getElementById("eiBelegMusterKnopf").addEventListener("click", function () {
+    var elFehler = document.getElementById("ei-beleg-fehler");
+    elFehler.hidden = true;
+    var knopf = document.getElementById("eiBelegMusterKnopf");
+    knopfSperren(knopf, true);
+    invoke("beleg_muster_oeffnen", { eingabe: belegFormularWerte() })
       .catch(function (e) { elFehler.textContent = fehlerText(e); elFehler.hidden = false; })
       .finally(function () { knopfSperren(knopf, false); });
   });

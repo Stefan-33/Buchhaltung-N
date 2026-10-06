@@ -96,6 +96,7 @@ pub fn run() {
             commands::preis_eintrag_speichern,
             commands::preis_eintrag_aktiv_setzen,
             commands::preisliste_importieren,
+            commands::beleg_muster_oeffnen,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

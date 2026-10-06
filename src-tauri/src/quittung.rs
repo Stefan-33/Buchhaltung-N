@@ -14,7 +14,7 @@
 // Seitenumbruch waere bei einer sehr langen Quittung (viele Posten)
 // gratis mit dabei.
 
-use crate::einstellungen::{self, Einstellungen};
+use crate::einstellungen::{self, farbe_gueltig, Einstellungen};
 use crate::geschaeft::{Auftrag, Kunde};
 use crate::sicherung::sicherungs_ordner;
 use printpdf::{Base64OrRaw, GeneratePdfOptions, PdfDocument, PdfSaveOptions, RawImage};
@@ -125,7 +125,127 @@ fn logo_abmessung_mm(breite_px: usize, hoehe_px: usize) -> Option<(f32, f32)> {
     Some((breite, hoehe))
 }
 
+/// Zahlungshinweis (z.B. Frist, IBAN) - nur auf einer noch offenen Rechnung.
+fn zahlungshinweis_html(auftrag: &Auftrag, e: &Einstellungen) -> String {
+    if auftrag.bezahlt || e.beleg_zahlungshinweis.trim().is_empty() {
+        return String::new();
+    }
+    format!("<p style=\"font-size:10pt;margin:3mm 0 0 0;\">{}</p>\n", html_escapen(&e.beleg_zahlungshinweis))
+}
+
+/// Teilt eine Einstellungen-Zeile wie "Staldenbachstrasse 13, 8808 Pfaeffikon"
+/// oder "Aenderungen · Rosmarie Straub" fuer den klassischen Kopf auf
+/// mehrere Zeilen auf - so wie auf der bisherigen Excel-Rechnung.
+fn zeilen_aufteilen(text: &str) -> Vec<String> {
+    text.split(" · ")
+        .flat_map(|teil| teil.split(", "))
+        .map(|z| z.trim().to_string())
+        .filter(|z| !z.is_empty())
+        .collect()
+}
+
+/// Vorlage "Klassisch": nachgebaut nach Stefans bisheriger Excel-Rechnung
+/// (Logo links, Adresse daneben, Kontakt rechts, farbiger Balken, Tabelle
+/// mit Linien, "Besten Dank" neben dem Total). Nur flache Tabellen mit
+/// reinem Text/Bild in den Zellen - das kann printpdf zuverlaessig.
+fn klassisch_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groesse_mm: Option<(f32, f32)>) -> String {
+    const ZELLE: &str = "border:1px solid #333333;padding:1mm;";
+    let farbe = if farbe_gueltig(&e.beleg_farbe) { e.beleg_farbe.as_str() } else { "#92D050" };
+
+    let mut links = vec![format!("<b>{}</b>", html_escapen(&e.geschaeft_name))];
+    for text in [&e.geschaeft_zeile2, &e.geschaeft_adresse] {
+        links.extend(zeilen_aufteilen(text).iter().map(|z| html_escapen(z)));
+    }
+    let mut rechts = Vec::new();
+    if !e.geschaeft_telefon.trim().is_empty() {
+        rechts.push(format!("Tel. {}", html_escapen(e.geschaeft_telefon.trim())));
+    }
+    for text in [&e.geschaeft_email, &e.geschaeft_web] {
+        if !text.trim().is_empty() {
+            rechts.push(html_escapen(text.trim()));
+        }
+    }
+    let logo_zelle = match logo_groesse_mm {
+        Some((b, h)) => format!(
+            "<td style=\"width:{}mm;vertical-align:top;\"><img src=\"logo\" style=\"width:{b}mm;height:{h}mm;\"/></td>",
+            b + 4.0
+        ),
+        None => String::new(),
+    };
+
+    let zeilen: String = auftrag
+        .posten
+        .iter()
+        .map(|p| {
+            format!(
+                "<tr><td style=\"{ZELLE}\">{}</td><td style=\"{ZELLE}\">{}</td><td style=\"{ZELLE}text-align:right;\">{:.2}</td><td style=\"{ZELLE}text-align:right;\">{:.2}</td></tr>",
+                p.stueck,
+                html_escapen(&p.bezeichnung),
+                p.preis,
+                p.stueck * p.preis
+            )
+        })
+        .collect();
+
+    let zahlung = if auftrag.bezahlt {
+        format!("bezahlt {}", html_escapen(&auftrag.zahlart))
+    } else if auftrag.zahlart == "Rechnung" {
+        "zahlbar per Rechnung".to_string()
+    } else {
+        "noch offen".to_string()
+    };
+
+    format!(
+        r#"<html><body style="padding:8mm;font-family:sans-serif;font-size:10pt;">
+<table style="width:100%;border-collapse:collapse;">
+<tr>{logo_zelle}<td style="vertical-align:top;">{links}</td><td style="vertical-align:bottom;text-align:right;">{rechts}</td></tr>
+</table>
+<div style="background-color:{farbe};height:4mm;margin:2mm 0 3mm 0;"></div>
+<table style="width:100%;">
+<tr><td style="font-size:14pt;font-weight:bold;">{titel} {nr}</td><td style="text-align:right;font-weight:bold;">{zusatz}</td></tr>
+</table>
+<table style="width:100%;margin-top:2mm;">
+<tr><td style="width:14mm;color:#555555;">Name</td><td>{vorname} {kname} (Nr. {knr})</td><td style="width:10mm;color:#555555;">Tel</td><td>{ktel}</td><td style="text-align:right;color:#555555;">Datum</td></tr>
+<tr><td style="color:#555555;">Ort</td><td>{ort}</td><td style="color:#555555;">Mail</td><td>{kmail}</td><td style="text-align:right;">{datum}</td></tr>
+</table>
+<table style="width:100%;border-collapse:collapse;margin-top:4mm;">
+<tr style="font-weight:bold;"><td style="{ZELLE}">Stück</td><td style="{ZELLE}">Arbeit</td><td style="{ZELLE}text-align:right;">à</td><td style="{ZELLE}text-align:right;">CHF</td></tr>
+{zeilen}
+<tr><td style="padding:1mm;" colspan="2">{dank}</td><td style="padding:1mm;text-align:right;font-weight:bold;">Total</td><td style="{ZELLE}text-align:right;font-weight:bold;">{summe:.2}</td></tr>
+</table>
+<p style="text-align:right;margin:2mm 0 0 0;">{zahlung}</p>
+{zahlungshinweis}
+{fuss}
+</body></html>"#,
+        links = links.join("<br/>"),
+        rechts = rechts.join("<br/>"),
+        titel = beleg_titel(auftrag),
+        nr = auftrag.rechnungsnummer,
+        zusatz = html_escapen(&e.beleg_titel_zusatz),
+        vorname = html_escapen(&kunde.vorname),
+        kname = html_escapen(&kunde.name),
+        knr = kunde.nummer,
+        ktel = html_escapen(&kunde.telefon),
+        ort = html_escapen(&kunde.ort),
+        kmail = html_escapen(&kunde.email),
+        datum = datum_kurz(&auftrag.datum),
+        dank = html_escapen(&e.beleg_dank),
+        summe = auftrag.summe,
+        zahlungshinweis = zahlungshinweis_html(auftrag, e),
+        fuss = quittung_fuss(e),
+    )
+}
+
 fn quittung_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groesse_mm: Option<(f32, f32)>) -> String {
+    if e.beleg_vorlage == "schlicht" {
+        schlicht_html(auftrag, kunde, e, logo_groesse_mm)
+    } else {
+        klassisch_html(auftrag, kunde, e, logo_groesse_mm)
+    }
+}
+
+/// Vorlage "Schlicht": das einfache Layout ohne Linien.
+fn schlicht_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groesse_mm: Option<(f32, f32)>) -> String {
     let zeilen: String = auftrag
         .posten
         .iter()
@@ -154,7 +274,7 @@ fn quittung_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groes
 <hr/>
 
 <p style="text-align:right;font-weight:bold;font-size:13pt;">{total_text} &nbsp; CHF {summe:.2}</p>
-
+{zahlungshinweis}
 {fuss}
 </body></html>"#,
         kopf = quittung_kopf(e, logo_groesse_mm),
@@ -167,8 +287,18 @@ fn quittung_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groes
         zeilen = zeilen,
         total_text = html_escapen(&total_text(auftrag)),
         summe = auftrag.summe,
+        zahlungshinweis = zahlungshinweis_html(auftrag, e),
         fuss = quittung_fuss(e),
     )
+}
+
+/// Seitengroesse in mm je nach gewaehltem Papierformat.
+fn seite_mm(e: &Einstellungen) -> (f32, f32) {
+    if e.beleg_format == "A4" {
+        (210.0, 297.0)
+    } else {
+        (148.0, 210.0)
+    }
 }
 
 /// Nur die reine PDF-Erzeugung, ohne Datei-/OS-Zugriff - damit sich das
@@ -190,9 +320,8 @@ fn quittung_pdf_bytes(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen) -> Re
     }
     let html = quittung_html(auftrag, kunde, e, logo_groesse_mm);
     let fonts = BTreeMap::new();
-    // A5 (148 x 210 mm) - siehe styles.css @page-Regel fuer die Browser-
-    // Druckvorschau, hier dieselbe Groesse fuer das PDF.
-    let options = GeneratePdfOptions { page_width: Some(148.0), page_height: Some(210.0), ..Default::default() };
+    let (breite, hoehe) = seite_mm(e);
+    let options = GeneratePdfOptions { page_width: Some(breite), page_height: Some(hoehe), ..Default::default() };
 
     let mut warnungen = Vec::new();
     let doc = PdfDocument::from_html(&html, &images, &fonts, &options, &mut warnungen)
@@ -212,6 +341,59 @@ pub fn quittung_pdf_erzeugen(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen
     let pfad = ordner.join(format!("{}_{}.pdf", beleg_titel(auftrag), auftrag.rechnungsnummer));
     std::fs::write(&pfad, bytes).map_err(|e| e.to_string())?;
     Ok(pfad)
+}
+
+/// Muster-Beleg mit Beispieldaten fuer "Beleg-Design -> Muster ansehen":
+/// zeigt die (noch nicht gespeicherten) Einstellungen aus dem Formular als
+/// echte PDF, damit man vor dem Speichern sieht, wie es aussieht. Als
+/// offene Rechnung, damit auch der Zahlungshinweis sichtbar ist.
+pub fn muster_pdf_erzeugen(e: &Einstellungen) -> Result<PathBuf, String> {
+    use crate::geschaeft::Posten;
+    let auftrag = Auftrag {
+        id: 0,
+        rechnungsnummer: 1234,
+        datum: chrono::Local::now().format("%Y-%m-%d").to_string(),
+        zahlart: "Rechnung".into(),
+        summe: 55.0,
+        posten: vec![
+            Posten { bezeichnung: "Reissverschluss ersetzen".into(), stueck: 1.0, preis: 35.0 },
+            Posten { bezeichnung: "Hose kürzen".into(), stueck: 2.0, preis: 10.0 },
+        ],
+        status: "Abgeholt".into(),
+        abholdatum: None,
+        angenommen_am: None,
+        bezahlt: false,
+        bezahlt_am: None,
+    };
+    let kunde = Kunde {
+        id: 0,
+        nummer: 101,
+        name: "Muster".into(),
+        vorname: "Anna".into(),
+        telefon: "079 123 45 67".into(),
+        ort: "Pfäffikon".into(),
+        adresse: "".into(),
+        email: "anna.muster@example.ch".into(),
+        kartensatz: None,
+        archiviert: false,
+        notiz: "".into(),
+        jahresumsatz: 0.0,
+        anzahl_auftraege: 0,
+        letzter_besuch: None,
+        offen_summe: 0.0,
+    };
+    let bytes = quittung_pdf_bytes(&auftrag, &kunde, e)?;
+    let ordner = sicherungs_ordner().join("Quittungen");
+    std::fs::create_dir_all(&ordner).map_err(|e| e.to_string())?;
+    let pfad = ordner.join("Muster.pdf");
+    // Ist die vorherige Muster.pdf noch im PDF-Programm offen (gesperrt),
+    // eine neue Datei daneben anlegen statt abzubrechen.
+    if std::fs::write(&pfad, &bytes).is_ok() {
+        return Ok(pfad);
+    }
+    let ausweich = ordner.join(format!("Muster_{}.pdf", chrono::Local::now().format("%H%M%S")));
+    std::fs::write(&ausweich, &bytes).map_err(|e| e.to_string())?;
+    Ok(ausweich)
 }
 
 /// Kopiert eine vom nativen Dateidialog ausgewaehlte Foto-/Logo-Datei in
@@ -291,11 +473,74 @@ mod tests {
         assert_eq!(datum_kurz("2026-10-05"), "05.10.2026");
     }
 
+    fn mit_vorlage(vorlage: &str) -> Einstellungen {
+        Einstellungen { beleg_vorlage: vorlage.into(), ..Einstellungen::default() }
+    }
+
     #[test]
-    fn bezahlter_auftrag_wird_als_quittung_mit_zahlart_gedruckt() {
-        let html = quittung_html(&test_auftrag(), &test_kunde(), &Einstellungen::default(), None);
-        assert!(html.contains("Quittung 1259"));
-        assert!(html.contains("Total · bezahlt Bar"));
+    fn bezahlter_auftrag_wird_in_beiden_vorlagen_als_quittung_mit_zahlart_gedruckt() {
+        for vorlage in ["klassisch", "schlicht"] {
+            let html = quittung_html(&test_auftrag(), &test_kunde(), &mit_vorlage(vorlage), None);
+            assert!(html.contains("Quittung 1259"), "{vorlage}");
+            assert!(html.contains("bezahlt Bar"), "{vorlage}");
+            assert!(html.contains("Hose kürzen") && html.contains("43.50"), "{vorlage}");
+        }
+    }
+
+    // Nachgebaut nach Stefans alter Excel-Rechnung: farbiger Balken,
+    // "für Aenderungen / Reparaturen", "Besten Dank", Adresse auf mehreren
+    // Zeilen, Kontakt (Tel./E-Mail/Web) rechts.
+    #[test]
+    fn klassische_vorlage_hat_balken_titelzusatz_dank_und_aufgeteilte_adresse() {
+        let mut e = mit_vorlage("klassisch");
+        e.geschaeft_email = "naehservice@example.ch".into();
+        let html = quittung_html(&test_auftrag(), &test_kunde(), &e, None);
+        assert!(html.contains("background-color:#92D050"));
+        assert!(html.contains("für Aenderungen / Reparaturen"));
+        assert!(html.contains("Besten Dank"));
+        assert!(html.contains("Staldenbachstrasse 13<br/>8808 Pfäffikon SZ"));
+        assert!(html.contains("Tel. 055 410 72 06<br/>naehservice@example.ch<br/>naehservicestraub.ch"));
+        assert!(html.contains("(Nr. 101)"), "Kundennummer auf der Rechnung");
+    }
+
+    // Die Farbe landet direkt im HTML - eine ungueltige (z.B. manipulierte)
+    // Angabe darf dort nie unveraendert auftauchen.
+    #[test]
+    fn ungueltige_farbe_faellt_auf_standardgruen_zurueck() {
+        let mut e = mit_vorlage("klassisch");
+        e.beleg_farbe = "red;\"><script>".into();
+        let html = quittung_html(&test_auftrag(), &test_kunde(), &e, None);
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("background-color:#92D050"));
+    }
+
+    #[test]
+    fn zahlungshinweis_nur_auf_offener_rechnung() {
+        for vorlage in ["klassisch", "schlicht"] {
+            let mut e = mit_vorlage(vorlage);
+            e.beleg_zahlungshinweis = "Zahlbar innert 30 Tagen".into();
+            let bezahlt = quittung_html(&test_auftrag(), &test_kunde(), &e, None);
+            assert!(!bezahlt.contains("Zahlbar innert 30 Tagen"), "{vorlage}");
+
+            let mut offen = test_auftrag();
+            offen.zahlart = "Rechnung".into();
+            offen.bezahlt = false;
+            let html = quittung_html(&offen, &test_kunde(), &e, None);
+            assert!(html.contains("Zahlbar innert 30 Tagen"), "{vorlage}");
+        }
+    }
+
+    #[test]
+    fn beide_vorlagen_und_formate_ergeben_gueltige_pdfs() {
+        for vorlage in ["klassisch", "schlicht"] {
+            for format in ["A5", "A4"] {
+                let e = Einstellungen { beleg_format: format.into(), ..mit_vorlage(vorlage) };
+                let bytes = quittung_pdf_bytes(&test_auftrag(), &test_kunde(), &e).unwrap();
+                assert!(bytes.starts_with(b"%PDF"), "{vorlage} {format}");
+            }
+        }
+        assert_eq!(seite_mm(&Einstellungen { beleg_format: "A4".into(), ..Einstellungen::default() }), (210.0, 297.0));
+        assert_eq!(seite_mm(&Einstellungen::default()), (148.0, 210.0));
     }
 
     // Stefans Wunsch: ein per Rechnung abgerechneter, noch offener Auftrag

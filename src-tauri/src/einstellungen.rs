@@ -20,9 +20,25 @@ pub enum EinstellungenFehler {
     NameLeer,
     #[error("Prozentsatz muss zwischen 0 und 100 liegen")]
     UngueltigerProzentsatz,
+    #[error("Ungültige Farbe (erwartet z.B. #92D050)")]
+    UngueltigeFarbe,
+    #[error("Unbekannte Beleg-Vorlage oder unbekanntes Papierformat")]
+    UngueltigeVorlage,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+pub const VORLAGEN: &[&str] = &["klassisch", "schlicht"];
+pub const FORMATE: &[&str] = &["A5", "A4"];
+
+/// "#92D050" - genau 6 Hex-Ziffern, damit die Farbe gefahrlos ins
+/// Beleg-HTML eingesetzt werden kann.
+pub fn farbe_gueltig(farbe: &str) -> bool {
+    farbe.len() == 7 && farbe.starts_with('#') && farbe[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+// serde(default): fehlt ein (neueres) Feld beim Speichern aus der
+// Oberflaeche, gilt der Standardwert statt eines Fehlers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Einstellungen {
     pub geschaeft_name: String,
     pub geschaeft_zeile2: String,
@@ -40,6 +56,18 @@ pub struct Einstellungen {
     // quittung::logo_setzen). None = kein Logo hinterlegt, dann erscheint
     // keine Bildzeile auf der Quittung.
     pub quittung_logo_pfad: Option<String>,
+    // Beleg-Design (Einstellungen -> Beleg-Design): "klassisch" ist das
+    // Layout von Stefans bisheriger Excel-Rechnung (Logo links, gruener
+    // Balken, Tabelle mit Linien, "Besten Dank"), "schlicht" das einfache
+    // Layout ohne Linien.
+    pub geschaeft_email: String,
+    pub beleg_vorlage: String,
+    pub beleg_format: String,
+    pub beleg_farbe: String,
+    pub beleg_titel_zusatz: String,
+    pub beleg_dank: String,
+    // Nur auf noch offenen Rechnungen gedruckt (z.B. Zahlungsfrist, IBAN).
+    pub beleg_zahlungshinweis: String,
     // Saetze fuer die automatische Lohnabrechnung einer Mitarbeiterin
     // (treuhand.rs), in Prozent - aendern sich gelegentlich von Jahr zu
     // Jahr, darum hier einstellbar statt im Code fest einprogrammiert.
@@ -64,6 +92,13 @@ impl Default for Einstellungen {
             quittung_hinweis1: "Reklamationen innert 10 Tagen nach Abholung".into(),
             quittung_hinweis2: "Kundenexemplar · Kartensatz und Gebühr erscheinen hier nie.".into(),
             quittung_logo_pfad: None,
+            geschaeft_email: String::new(),
+            beleg_vorlage: "klassisch".into(),
+            beleg_format: "A5".into(),
+            beleg_farbe: "#92D050".into(),
+            beleg_titel_zusatz: "für Aenderungen / Reparaturen".into(),
+            beleg_dank: "Besten Dank".into(),
+            beleg_zahlungshinweis: String::new(),
             // Stand 2024/2025 fuer den Kanton Schwyz, genau wie in Stefans
             // bisheriger Lohnabrechnung-Excel (KTV/NBU bewusst nicht
             // automatisiert - bei ihm bisher ohne Abzug).
@@ -97,6 +132,13 @@ pub fn einstellungen_lesen(conn: &Connection) -> Result<Einstellungen, Einstellu
             let p = lesen(conn, "quittung_logo_pfad", "")?;
             if p.is_empty() { None } else { Some(p) }
         },
+        geschaeft_email: lesen(conn, "geschaeft_email", &d.geschaeft_email)?,
+        beleg_vorlage: lesen(conn, "beleg_vorlage", &d.beleg_vorlage)?,
+        beleg_format: lesen(conn, "beleg_format", &d.beleg_format)?,
+        beleg_farbe: lesen(conn, "beleg_farbe", &d.beleg_farbe)?,
+        beleg_titel_zusatz: lesen(conn, "beleg_titel_zusatz", &d.beleg_titel_zusatz)?,
+        beleg_dank: lesen(conn, "beleg_dank", &d.beleg_dank)?,
+        beleg_zahlungshinweis: lesen(conn, "beleg_zahlungshinweis", &d.beleg_zahlungshinweis)?,
         lohn_ferienzuschlag_satz: lesen(conn, "lohn_ferienzuschlag_satz", &d.lohn_ferienzuschlag_satz.to_string())?
             .parse()
             .unwrap_or(d.lohn_ferienzuschlag_satz),
@@ -123,6 +165,12 @@ pub fn einstellungen_speichern(conn: &Connection, e: &Einstellungen) -> Result<(
             return Err(EinstellungenFehler::UngueltigerProzentsatz);
         }
     }
+    if !farbe_gueltig(&e.beleg_farbe) {
+        return Err(EinstellungenFehler::UngueltigeFarbe);
+    }
+    if !VORLAGEN.contains(&e.beleg_vorlage.as_str()) || !FORMATE.contains(&e.beleg_format.as_str()) {
+        return Err(EinstellungenFehler::UngueltigeVorlage);
+    }
 
     schreiben(conn, "geschaeft_name", e.geschaeft_name.trim())?;
     schreiben(conn, "geschaeft_zeile2", e.geschaeft_zeile2.trim())?;
@@ -134,6 +182,13 @@ pub fn einstellungen_speichern(conn: &Connection, e: &Einstellungen) -> Result<(
     schreiben(conn, "quittung_hinweis1", e.quittung_hinweis1.trim())?;
     schreiben(conn, "quittung_hinweis2", e.quittung_hinweis2.trim())?;
     schreiben(conn, "quittung_logo_pfad", e.quittung_logo_pfad.as_deref().unwrap_or(""))?;
+    schreiben(conn, "geschaeft_email", e.geschaeft_email.trim())?;
+    schreiben(conn, "beleg_vorlage", &e.beleg_vorlage)?;
+    schreiben(conn, "beleg_format", &e.beleg_format)?;
+    schreiben(conn, "beleg_farbe", &e.beleg_farbe.to_uppercase())?;
+    schreiben(conn, "beleg_titel_zusatz", e.beleg_titel_zusatz.trim())?;
+    schreiben(conn, "beleg_dank", e.beleg_dank.trim())?;
+    schreiben(conn, "beleg_zahlungshinweis", e.beleg_zahlungshinweis.trim())?;
     schreiben(conn, "lohn_ferienzuschlag_satz", &e.lohn_ferienzuschlag_satz.to_string())?;
     schreiben(conn, "lohn_ahv_satz", &e.lohn_ahv_satz.to_string())?;
     schreiben(conn, "lohn_alv_satz", &e.lohn_alv_satz.to_string())?;
@@ -200,6 +255,30 @@ mod tests {
         let mut e2 = Einstellungen::default();
         e2.kartensatz_b = 150.0;
         assert!(matches!(einstellungen_speichern(&conn, &e2), Err(EinstellungenFehler::UngueltigerProzentsatz)));
+    }
+
+    #[test]
+    fn beleg_design_wird_gespeichert_und_ungueltige_werte_abgelehnt() {
+        let conn = test_db();
+        let mut e = Einstellungen::default();
+        assert_eq!(e.beleg_vorlage, "klassisch");
+        e.beleg_vorlage = "schlicht".into();
+        e.beleg_format = "A4".into();
+        e.beleg_farbe = "#1c9b3b".into();
+        e.beleg_zahlungshinweis = "Zahlbar innert 30 Tagen".into();
+        einstellungen_speichern(&conn, &e).unwrap();
+        let gelesen = einstellungen_lesen(&conn).unwrap();
+        assert_eq!(gelesen.beleg_vorlage, "schlicht");
+        assert_eq!(gelesen.beleg_format, "A4");
+        assert_eq!(gelesen.beleg_farbe, "#1C9B3B");
+        assert_eq!(gelesen.beleg_zahlungshinweis, "Zahlbar innert 30 Tagen");
+
+        let mut falsch = Einstellungen::default();
+        falsch.beleg_farbe = "red\"><script>".into();
+        assert!(matches!(einstellungen_speichern(&conn, &falsch), Err(EinstellungenFehler::UngueltigeFarbe)));
+        let mut falsch = Einstellungen::default();
+        falsch.beleg_vorlage = "bunt".into();
+        assert!(matches!(einstellungen_speichern(&conn, &falsch), Err(EinstellungenFehler::UngueltigeVorlage)));
     }
 
     #[test]
