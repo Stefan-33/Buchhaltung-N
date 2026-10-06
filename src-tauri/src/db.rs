@@ -229,12 +229,16 @@ fn migrationen_anwenden(conn: &Connection) -> rusqlite::Result<()> {
         ("angenommen_am", "TEXT"),
         ("bezahlt_am", "TEXT"),
     ];
+    // Einnahmen aus Excel: Zahlart (Bar/Karte/Twint/Rechnung), damit sie in
+    // "Monat & Jahr" wie im bisherigen "Jahr"-Blatt mitgezaehlt werden.
+    let einnahmen_spalten: &[(&str, &str)] = &[("zahlart", "TEXT NOT NULL DEFAULT ''")];
     let bezahlt_am_neu = spalte_fehlt(conn, "auftraege", "bezahlt_am")?;
 
     for (tabelle, spalten) in [
         ("benutzer", benutzer_spalten),
         ("ausgaben", ausgaben_spalten),
         ("auftraege", auftraege_spalten),
+        ("einnahmen_extern", einnahmen_spalten),
     ] {
         for (spalte, definition) in spalten {
             if spalte_fehlt(conn, tabelle, spalte)? {

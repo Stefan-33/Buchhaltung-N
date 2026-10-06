@@ -8,9 +8,15 @@
 use calamine::{open_workbook_auto, Data, Reader};
 use std::path::Path;
 
+/// Markiert in der Tabelle den Beginn eines Tabellenblatts, wenn
+/// `blattnamen` gesetzt ist: eine Zeile ["#BLATT", Name]. Der Treuhand-
+/// Import liest daraus den Monat ("Juni", "Juni A") und ueberspringt
+/// Zusammenfassungen ("Jahr", "Treuhand").
+pub const BLATT_MARKE: &str = "#BLATT";
+
 /// `alle_blaetter`: bei Excel jedes Tabellenblatt nacheinander lesen
 /// (Stunden-Import: z.B. ein Blatt pro Jahr), sonst nur das erste.
-pub fn datei_als_tabelle_lesen(pfad: &str, alle_blaetter: bool) -> Result<Vec<Vec<String>>, String> {
+pub fn datei_als_tabelle_lesen(pfad: &str, alle_blaetter: bool, blattnamen: bool) -> Result<Vec<Vec<String>>, String> {
     let pfad = Path::new(pfad);
     // calamine liest nur "echte" Tabellenformate (xlsx/xls/xlsb/ods) - CSV
     // ist reiner Text und wird separat behandelt, mit derselben Trennzeichen-
@@ -38,6 +44,9 @@ pub fn datei_als_tabelle_lesen(pfad: &str, alle_blaetter: bool) -> Result<Vec<Ve
             let bereich = arbeitsmappe
                 .worksheet_range(&blatt)
                 .map_err(|e| format!("Tabellenblatt „{blatt}“ konnte nicht gelesen werden: {e}"))?;
+            if blattnamen {
+                zeilen.push(vec![BLATT_MARKE.to_string(), blatt.clone()]);
+            }
             zeilen.extend(bereich.rows().map(|zeile| zeile.iter().map(zelle_zu_text).collect::<Vec<String>>()));
         }
         zeilen
@@ -172,7 +181,7 @@ mod tests {
     #[test]
     fn liest_eine_einfache_csv_datei() {
         let mut datei = tempfile_schreiben("Name,Telefon\nMeier,079 111 22 33\nKeller,079 444 55 66\n");
-        let tabelle = datei_als_tabelle_lesen(datei.path_str(), false).unwrap();
+        let tabelle = datei_als_tabelle_lesen(datei.path_str(), false, false).unwrap();
         assert_eq!(tabelle, vec![
             vec!["Name".to_string(), "Telefon".to_string()],
             vec!["Meier".to_string(), "079 111 22 33".to_string()],
@@ -184,14 +193,14 @@ mod tests {
     #[test]
     fn leere_zeilen_werden_uebersprungen() {
         let mut datei = tempfile_schreiben("Name,Telefon\nMeier,079 111 22 33\n,\n\nKeller,079 444 55 66\n");
-        let tabelle = datei_als_tabelle_lesen(datei.path_str(), false).unwrap();
+        let tabelle = datei_als_tabelle_lesen(datei.path_str(), false, false).unwrap();
         assert_eq!(tabelle.len(), 3); // Kopfzeile + 2 echte Zeilen, die leere faellt raus
         datei.aufraeumen();
     }
 
     #[test]
     fn nicht_vorhandene_datei_gibt_verstaendlichen_fehler() {
-        let ergebnis = datei_als_tabelle_lesen("/pfad/der/nicht/existiert.csv", false);
+        let ergebnis = datei_als_tabelle_lesen("/pfad/der/nicht/existiert.csv", false, false);
         assert!(ergebnis.is_err());
     }
 

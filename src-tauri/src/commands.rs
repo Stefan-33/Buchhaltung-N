@@ -207,8 +207,8 @@ pub fn einstellungen_speichern(zustand: State<AppZustand>, eingabe: Einstellunge
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn datei_als_tabelle_lesen(pfad: String, alle_blaetter: Option<bool>) -> Antwort<Vec<Vec<String>>> {
-    crate::datei::datei_als_tabelle_lesen(&pfad, alle_blaetter.unwrap_or(false))
+pub fn datei_als_tabelle_lesen(pfad: String, alle_blaetter: Option<bool>, blattnamen: Option<bool>) -> Antwort<Vec<Vec<String>>> {
+    crate::datei::datei_als_tabelle_lesen(&pfad, alle_blaetter.unwrap_or(false), blattnamen.unwrap_or(false))
 }
 
 #[tauri::command(rename_all = "snake_case")]

@@ -515,15 +515,34 @@ pub struct MonatsZeile {
 /// Bar/Twint/Karte/Rechnung und wie viele Kunden es waren.
 pub fn monatsstatistik(conn: &Connection, jahr: i32) -> Result<Vec<MonatsZeile>, GeschaeftFehler> {
     let mut stmt = conn.prepare(
-        "SELECT
-            CAST(strftime('%m', datum) AS INTEGER) AS monat,
-            COALESCE(SUM(CASE WHEN zahlart = 'Bar' THEN summe END), 0),
-            COALESCE(SUM(CASE WHEN zahlart = 'Twint' THEN summe END), 0),
-            COALESCE(SUM(CASE WHEN zahlart = 'Karte' THEN summe END), 0),
-            COALESCE(SUM(CASE WHEN zahlart = 'Rechnung' THEN summe END), 0),
-            COUNT(DISTINCT kunde_id)
-         FROM auftraege
-         WHERE strftime('%Y', datum) = ?1 AND status = 'Abgeholt'
+        // Auftraege aus dem Programm plus die aus Excel uebernommenen
+        // Einnahmen (Monate vor dem Umstieg, treuhand.rs) - so zeigt
+        // "Monat & Jahr" das ganze Jahr wie Stefans bisheriges "Jahr"-Blatt.
+        // Jede Excel-Zeile zaehlt dort als eine Kundin (wie "Kunden" im
+        // Monatsblatt), eine ohne Zahlart unter Bar.
+        "SELECT monat, SUM(bar), SUM(twint), SUM(karte), SUM(rechnung), SUM(kunden) FROM (
+            SELECT
+                CAST(strftime('%m', datum) AS INTEGER) AS monat,
+                COALESCE(SUM(CASE WHEN zahlart = 'Bar' THEN summe END), 0) AS bar,
+                COALESCE(SUM(CASE WHEN zahlart = 'Twint' THEN summe END), 0) AS twint,
+                COALESCE(SUM(CASE WHEN zahlart = 'Karte' THEN summe END), 0) AS karte,
+                COALESCE(SUM(CASE WHEN zahlart = 'Rechnung' THEN summe END), 0) AS rechnung,
+                COUNT(DISTINCT kunde_id) AS kunden
+             FROM auftraege
+             WHERE strftime('%Y', datum) = ?1 AND status = 'Abgeholt'
+             GROUP BY monat
+            UNION ALL
+            SELECT
+                CAST(strftime('%m', datum) AS INTEGER),
+                COALESCE(SUM(CASE WHEN zahlart NOT IN ('Twint', 'Karte', 'Rechnung') THEN betrag END), 0),
+                COALESCE(SUM(CASE WHEN zahlart = 'Twint' THEN betrag END), 0),
+                COALESCE(SUM(CASE WHEN zahlart = 'Karte' THEN betrag END), 0),
+                COALESCE(SUM(CASE WHEN zahlart = 'Rechnung' THEN betrag END), 0),
+                COUNT(*)
+             FROM einnahmen_extern
+             WHERE strftime('%Y', datum) = ?1
+             GROUP BY 1
+         )
          GROUP BY monat
          ORDER BY monat",
     )?;
@@ -726,5 +745,28 @@ mod tests {
         let andere = vec![NeuerKunde { telefon: "055 000 00 00".into(), ..neuer_kunde("Meier", "Anna") }];
         assert_eq!(kunden_importieren(&mut conn, andere).unwrap().neu, 1);
         assert_eq!(kunden_suchen(&conn, "", false).unwrap().len(), 4);
+    }
+
+    // Aus Excel uebernommene Einnahmen (Monate vor dem Programm) erscheinen
+    // in "Monat & Jahr" mit ihrer Zahlart, zusammen mit den Auftraegen.
+    #[test]
+    fn monatsstatistik_zaehlt_excel_einnahmen_mit() {
+        let conn = test_db();
+        conn.execute_batch(
+            "INSERT INTO einnahmen_extern (datum, betrag, notiz, zahlart) VALUES
+                ('2026-06-30', 50.0, 'Bar', 'Bar'), ('2026-06-30', 24.38, 'Karte', 'Karte'),
+                ('2026-06-30', 65.0, 'Twint', 'Twint'), ('2026-06-30', 10.0, 'ohne', ''),
+                ('2025-06-30', 999.0, 'Vorjahr', 'Bar');",
+        )
+        .unwrap();
+        let k = kunde_anlegen(&conn, neuer_kunde("Meier", "Anna")).unwrap();
+        conn.execute(
+            "INSERT INTO auftraege (kunde_id, rechnungsnummer, datum, zahlart, summe) VALUES (?1, 1300, '2026-06-15', 'Bar', 40.0)",
+            [k.id],
+        )
+        .unwrap();
+        let juni = monatsstatistik(&conn, 2026).unwrap().into_iter().find(|z| z.monat == 6).unwrap();
+        assert_eq!((juni.bar, juni.karte, juni.twint, juni.rechnung), (100.0, 24.38, 65.0, 0.0));
+        assert_eq!(juni.anzahl_kunden, 5, "4 Excel-Zeilen + 1 Kundin aus dem Programm");
     }
 }

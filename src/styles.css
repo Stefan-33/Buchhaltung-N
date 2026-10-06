@@ -445,3 +445,4 @@ tr.thi-warn > td{background:var(--faden-matt);}
 .ki-zuordnung td{padding:2px 8px 6px;vertical-align:top;}
 .ki-zuordnung select{font-size:13px;padding:4px 6px;border:1px solid var(--linie-stark);border-radius:6px;background:var(--blatt);color:var(--tinte);}
 .ki-zuordnung small{display:block;margin-top:3px;color:var(--tinte-3);font-size:11.5px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;}
+.thi-kontrolle .thi-breit{grid-column:1 / -1;}

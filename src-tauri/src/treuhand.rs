@@ -130,18 +130,22 @@ pub fn ausgabe_erfassen(conn: &Connection, eingabe: &NeueAusgabe) -> Result<Ausg
 pub fn ausgaben_importieren(conn: &mut Connection, eingaben: Vec<NeueAusgabe>) -> Result<ImportErgebnis, TreuhandFehler> {
     let tx = conn.transaction()?;
     let mut ergebnis = ImportErgebnis::default();
+    let mut schon_da = SchonDa::default();
     for eingabe in eingaben {
         let datum = eingabe.datum.trim();
         if !datum_gueltig(datum) || !AUSGABEN_KATEGORIEN.contains(&eingabe.kategorie.as_str()) || !(eingabe.betrag > 0.0) {
             continue;
         }
         let betrag = rappen(eingabe.betrag);
-        let schon_da: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM ausgaben WHERE datum = ?1 AND kategorie = ?2 AND ROUND(betrag, 2) = ?3 AND notiz = ?4)",
-            params![datum, eingabe.kategorie, betrag, eingabe.notiz.trim()],
-            |z| z.get(0),
-        )?;
-        if schon_da {
+        let schluessel = format!("{datum}|{}|{betrag:.2}|{}", eingabe.kategorie, eingabe.notiz.trim());
+        let vorhanden = schon_da.verbrauchen(&schluessel, || {
+            tx.query_row(
+                "SELECT COUNT(*) FROM ausgaben WHERE datum = ?1 AND kategorie = ?2 AND ROUND(betrag, 2) = ?3 AND notiz = ?4",
+                params![datum, eingabe.kategorie, betrag, eingabe.notiz.trim()],
+                |z| z.get(0),
+            )
+        })?;
+        if vorhanden {
             ergebnis.doppelt += 1;
             continue;
         }
@@ -159,6 +163,32 @@ pub fn ausgaben_importieren(conn: &mut Connection, eingaben: Vec<NeueAusgabe>) -
 pub struct ImportErgebnis {
     pub neu: usize,
     pub doppelt: usize,
+}
+
+/// Erkennt schon importierte Zeilen auch dann richtig, wenn derselbe
+/// Betrag im selben Monat mehrmals vorkommt (z.B. zweimal "Bar 50.00" im
+/// Juni): pro Schluessel zaehlt, wie viele gleiche Zeilen schon in der
+/// Datenbank stehen - erst die darueber hinaus werden neu eingetragen.
+#[derive(Default)]
+struct SchonDa {
+    rest: std::collections::HashMap<String, i64>,
+}
+
+impl SchonDa {
+    /// true = diese Zeile gibt es schon (und ist damit "verbraucht").
+    fn verbrauchen(&mut self, schluessel: &str, anzahl_in_db: impl FnOnce() -> rusqlite::Result<i64>) -> rusqlite::Result<bool> {
+        if !self.rest.contains_key(schluessel) {
+            let n = anzahl_in_db()?;
+            self.rest.insert(schluessel.to_string(), n);
+        }
+        let rest = self.rest.get_mut(schluessel).expect("eben eingefuegt");
+        if *rest > 0 {
+            *rest -= 1;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 fn datum_gueltig(datum: &str) -> bool {
@@ -181,6 +211,9 @@ pub struct NeueEinnahme {
     pub betrag: f64,
     #[serde(default)]
     pub notiz: String,
+    /// "Bar", "Karte", "Twint", "Rechnung" oder leer (unbekannt).
+    #[serde(default)]
+    pub zahlart: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -189,6 +222,7 @@ pub struct Einnahme {
     pub datum: String,
     pub betrag: f64,
     pub notiz: String,
+    pub zahlart: String,
 }
 
 /// Gleiche Regeln wie bei den Ausgaben: ungueltige Zeilen werden
@@ -197,24 +231,33 @@ pub struct Einnahme {
 pub fn einnahmen_importieren(conn: &mut Connection, eingaben: Vec<NeueEinnahme>) -> Result<ImportErgebnis, TreuhandFehler> {
     let tx = conn.transaction()?;
     let mut ergebnis = ImportErgebnis::default();
+    let mut schon_da = SchonDa::default();
     for eingabe in eingaben {
         let datum = eingabe.datum.trim();
         if !datum_gueltig(datum) || !(eingabe.betrag > 0.0) {
             continue;
         }
         let betrag = rappen(eingabe.betrag);
-        let schon_da: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM einnahmen_extern WHERE datum = ?1 AND ROUND(betrag, 2) = ?2 AND notiz = ?3)",
-            params![datum, betrag, eingabe.notiz.trim()],
-            |z| z.get(0),
-        )?;
-        if schon_da {
+        let zahlart = match eingabe.zahlart.trim() {
+            z @ ("Bar" | "Karte" | "Twint" | "Rechnung") => z,
+            _ => "",
+        };
+        let notiz = eingabe.notiz.trim();
+        let schluessel = format!("{datum}|{betrag:.2}|{notiz}|{zahlart}");
+        let vorhanden = schon_da.verbrauchen(&schluessel, || {
+            tx.query_row(
+                "SELECT COUNT(*) FROM einnahmen_extern WHERE datum = ?1 AND ROUND(betrag, 2) = ?2 AND notiz = ?3 AND zahlart = ?4",
+                params![datum, betrag, notiz, zahlart],
+                |z| z.get(0),
+            )
+        })?;
+        if vorhanden {
             ergebnis.doppelt += 1;
             continue;
         }
         tx.execute(
-            "INSERT INTO einnahmen_extern (datum, betrag, notiz) VALUES (?1, ?2, ?3)",
-            params![datum, betrag, eingabe.notiz.trim()],
+            "INSERT INTO einnahmen_extern (datum, betrag, notiz, zahlart) VALUES (?1, ?2, ?3, ?4)",
+            params![datum, betrag, notiz, zahlart],
         )?;
         ergebnis.neu += 1;
     }
@@ -224,10 +267,12 @@ pub fn einnahmen_importieren(conn: &mut Connection, eingaben: Vec<NeueEinnahme>)
 
 pub fn einnahmen_extern_eines_jahres(conn: &Connection, jahr: i32) -> Result<Vec<Einnahme>, TreuhandFehler> {
     let mut stmt = conn.prepare(
-        "SELECT id, datum, betrag, notiz FROM einnahmen_extern WHERE strftime('%Y', datum) = ?1 ORDER BY datum, id",
+        "SELECT id, datum, betrag, notiz, zahlart FROM einnahmen_extern WHERE strftime('%Y', datum) = ?1 ORDER BY datum, id",
     )?;
     let zeilen = stmt
-        .query_map([jahr.to_string()], |z| Ok(Einnahme { id: z.get(0)?, datum: z.get(1)?, betrag: z.get(2)?, notiz: z.get(3)? }))?
+        .query_map([jahr.to_string()], |z| {
+            Ok(Einnahme { id: z.get(0)?, datum: z.get(1)?, betrag: z.get(2)?, notiz: z.get(3)?, zahlart: z.get(4)? })
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(zeilen)
 }
@@ -484,9 +529,9 @@ mod tests {
         .unwrap();
         let excel = || {
             vec![
-                NeueEinnahme { datum: "2026-01-31".into(), betrag: 1500.0, notiz: "Januar".into() },
-                NeueEinnahme { datum: "2026-02-28".into(), betrag: 1250.5, notiz: "Februar".into() },
-                NeueEinnahme { datum: "2026-02-30".into(), betrag: 10.0, notiz: "".into() }, // kein echtes Datum
+                NeueEinnahme { datum: "2026-01-31".into(), betrag: 1500.0, notiz: "Januar".into(), zahlart: "".into() },
+                NeueEinnahme { datum: "2026-02-28".into(), betrag: 1250.5, notiz: "Februar".into(), zahlart: "".into() },
+                NeueEinnahme { datum: "2026-02-30".into(), betrag: 10.0, notiz: "".into(), zahlart: "".into() }, // kein echtes Datum
             ]
         };
         assert_eq!(einnahmen_importieren(&mut conn, excel()).unwrap(), ImportErgebnis { neu: 2, doppelt: 0 });
@@ -581,5 +626,26 @@ mod tests {
         assert!((l.ahv - 21.23777151).abs() < 0.01);
         assert!((l.alv - 4.40783937).abs() < 0.01);
         assert!((l.nettolohn - 375.06705912).abs() < 0.01);
+    }
+
+    // Stefans Monatsblatt: derselbe Betrag kommt im Monat mehrmals vor
+    // (zweimal Bar 50.00). Beide muessen rein - und ein zweiter Import der
+    // gleichen Datei darf trotzdem nichts doppelt eintragen.
+    #[test]
+    fn gleiche_betraege_im_selben_monat_zaehlen_einzeln() {
+        let mut conn = test_db();
+        let e = |betrag: f64, zahlart: &str| NeueEinnahme { datum: "2026-06-30".into(), betrag, notiz: zahlart.into(), zahlart: zahlart.into() };
+        let juni = || vec![e(50.0, "Bar"), e(50.0, "Bar"), e(24.38, "Karte"), e(24.38, "Karte"), e(65.0, "Twint")];
+        assert_eq!(einnahmen_importieren(&mut conn, juni()).unwrap(), ImportErgebnis { neu: 5, doppelt: 0 });
+        let mut mehr = juni();
+        mehr.push(e(50.0, "Bar")); // ein drittes Mal Bar 50.00 kam dazu
+        assert_eq!(einnahmen_importieren(&mut conn, mehr).unwrap(), ImportErgebnis { neu: 1, doppelt: 5 });
+        let liste = einnahmen_extern_eines_jahres(&conn, 2026).unwrap();
+        assert_eq!(liste.len(), 6);
+        assert_eq!(liste.iter().filter(|x| x.zahlart == "Bar").count(), 3);
+
+        let a = |betrag: f64| ausgabe("2026-06-30", "Telefon", betrag);
+        assert_eq!(ausgaben_importieren(&mut conn, vec![a(49.9), a(49.9)]).unwrap(), ImportErgebnis { neu: 2, doppelt: 0 });
+        assert_eq!(ausgaben_importieren(&mut conn, vec![a(49.9), a(49.9)]).unwrap(), ImportErgebnis { neu: 0, doppelt: 2 });
     }
 }

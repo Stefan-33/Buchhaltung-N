@@ -436,7 +436,9 @@
   // exakt dieselbe Erkennung wie bei einem Copy&Paste aus Excel.
   // alleBlaetter: bei einer Excel-Datei jedes Tabellenblatt lesen (z. B.
   // ein Blatt pro Jahr), nicht nur das erste.
-  function dateiFuerImportLesen(zielTextarea, nachErfolg, aufFehler, alleBlaetter) {
+  // blattnamen: vor jedes Blatt eine Zeile "#BLATT <Name>" (Treuhand-Import
+  // liest daraus den Monat, z. B. "Juni" / "Juni A").
+  function dateiFuerImportLesen(zielTextarea, nachErfolg, aufFehler, alleBlaetter, blattnamen) {
     if (!window.__TAURI__.dialog || !window.__TAURI__.dialog.open) {
       aufFehler("Dateiauswahl ist in dieser Programmversion nicht verfügbar.");
       return;
@@ -445,7 +447,7 @@
       .open({ multiple: false, filters: [{ name: "Tabellen", extensions: ["xlsx", "xls", "csv"] }] })
       .then(function (pfad) {
         if (!pfad) return; // Dialog abgebrochen
-        return invoke("datei_als_tabelle_lesen", { pfad: pfad, alle_blaetter: !!alleBlaetter }).then(function (tabelle) {
+        return invoke("datei_als_tabelle_lesen", { pfad: pfad, alle_blaetter: !!alleBlaetter, blattnamen: !!blattnamen }).then(function (tabelle) {
           zielTextarea.value = tabelle.map(function (zeile) { return zeile.join("\t"); }).join("\n");
           nachErfolg();
         });
@@ -2418,7 +2420,8 @@
         document.getElementById("thEinnahmenAbschnitt").hidden = !liste.length;
         var el = document.getElementById("thEinnahmenListe");
         el.innerHTML = liste.map(function (e) {
-          return "<tr><td>" + datumKurz(e.datum) + '</td><td class="re">' + chf(e.betrag) + "</td><td>" + escapeHtml(e.notiz) +
+          return "<tr><td>" + datumKurz(e.datum) + '</td><td class="re">' + chf(e.betrag) + "</td><td>" +
+            escapeHtml(e.zahlart && e.zahlart !== e.notiz ? e.zahlart + " · " + e.notiz : e.notiz) +
             '</td><td><button type="button" class="weg" data-einnahme-id="' + e.id + '" title="Einnahme löschen">×</button></td></tr>';
         }).join("");
         el.querySelectorAll("button[data-einnahme-id]").forEach(function (btn) {
@@ -2607,20 +2610,30 @@
     return isFinite(n) ? n : NaN;
   }
 
+  // Monat aus einer Zelle oder einem Blattnamen: "Juni", "Jun 26",
+  // "Sept. 2026", "Juni A" -> { monat: 1-12, jahr: Zahl oder null }.
+  function thiMonatLesen(text) {
+    var roh = String(text || "").trim().toLowerCase().replace("ä", "a");
+    var m = roh.match(/^([a-z]{3})[a-z]*\.?(?:\s*(\d{4}|\d{2}))?(?:\s*a)?\s*\d?$/);
+    if (!m) return null;
+    var monat = MONATE_ERKENNEN.indexOf(m[1]);
+    if (monat < 0) return null;
+    var jahr = m[2] ? Number(m[2].length === 2 ? "20" + m[2] : m[2]) : null;
+    return { monat: monat + 1, jahr: jahr };
+  }
+
+  function thiMonatsende(jahr, monat) {
+    return jahr + "-" + String(monat).padStart(2, "0") + "-" + new Date(jahr, monat, 0).getDate();
+  }
+
   // Datum aus einer Zelle: echtes Datum, sonst ein Monatsname ("Januar",
   // "Feb. 2026") -> Letzter des Monats (Jahr aus der Zelle, sonst das im
   // Reiter gewaehlte Jahr).
   function thiDatum(zelle) {
     var d = stiDatumNormalisieren(zelle);
     if (d) return d;
-    var roh = String(zelle || "").trim().toLowerCase().replace("ä", "a");
-    var m = roh.match(/^([a-z]{3})[a-z]*\.?\s*(\d{4})?$/);
-    if (!m) return "";
-    var monat = MONATE_ERKENNEN.indexOf(m[1]);
-    if (monat < 0) return "";
-    var jahr = m[2] ? Number(m[2]) : thJahr;
-    var letzter = new Date(jahr, monat + 1, 0).getDate();
-    return jahr + "-" + String(monat + 1).padStart(2, "0") + "-" + letzter;
+    var m = thiMonatLesen(zelle);
+    return m ? thiMonatsende(m.jahr || thJahr, m.monat) : "";
   }
 
   function thiZiel(rohText) {
@@ -2631,41 +2644,73 @@
     return thiKategoriePassend(rohText);
   }
 
-  // Kopfzeile erkennen. Liste: Datum + Betrag (+ Kategorie). Breit: Datum
-  // + mindestens zwei Spalten, die eine Kategorie oder Einnahmen sind.
+  function thiZahlart(rohText) {
+    var n = kiTextNormalisieren(rohText);
+    if (/^bar/.test(n)) return "Bar";
+    if (/^karte|^kartenzahlung|^ec|^kredit/.test(n)) return "Karte";
+    if (/^twint/.test(n)) return "Twint";
+    if (/^rechnung/.test(n)) return "Rechnung";
+    return "";
+  }
+
+  // Kopfzeile erkennen. Liste: Datum + Betrag (+ Kategorie). Breit:
+  // mindestens zwei Spalten, die eine Kategorie oder Einnahmen sind - mit
+  // Datumsspalte, oder ohne (dann gilt der Monat des Blatts, wie in Stefans
+  // Monatsblaettern "Juni" / "Juni A"). Kommt dieselbe Ueberschrift zweimal
+  // vor (z. B. "Bar" und rechts daneben die Zusammenfassung "bar"), zaehlt
+  // nur die erste Spalte.
   function thiKopfErkennen(spalten) {
     var norm = spalten.map(kiTextNormalisieren);
     var datum = norm.findIndex(function (z) { return /^(datum|tag|monat|zeitraum)$/.test(z); });
-    if (datum < 0) return null;
     function finde(re) { return norm.findIndex(function (z, i) { return i !== datum && re.test(z); }); }
     var betrag = finde(/^(betrag|kosten|chf|preis|ausgabe$|ausgaben$|summe$)/);
     var kategorie = finde(/^(kategorie|art|konto|rubrik|bereich|grund)$/);
     var notiz = finde(/^(notiz|bemerkung|anmerkung|beschreibung|text|lieferant|was|beleg)/);
     var spaltenZiel = {};
+    var gesehen = {};
     var treffer = 0;
     norm.forEach(function (z, i) {
       if (!z || i === datum || i === notiz || i === betrag || i === kategorie || THI_TOTAL.test(z)) return;
+      if (gesehen[z]) return;
+      gesehen[z] = true;
       var ziel = thiZiel(spalten[i]);
-      spaltenZiel[i] = { roh: String(spalten[i]).trim(), ziel: ziel };
+      spaltenZiel[i] = { roh: String(spalten[i]).trim(), ziel: ziel, zahlart: ziel === "__einnahme" ? thiZahlart(spalten[i]) : "" };
       if (ziel) treffer++;
     });
-    if (treffer >= 2) return { art: "breit", datum: datum, notiz: notiz, spalten: spaltenZiel };
-    if (betrag >= 0) return { art: "liste", datum: datum, betrag: betrag, kategorie: kategorie, notiz: notiz };
+    // Ohne Datumsspalte nur eine reine Textzeile als Kopfzeile nehmen -
+    // eine Datenzeile ("Büro", "Papier", 35.50) hat Zahlen oder ein Datum.
+    var nurText = spalten.every(function (z) {
+      var t = String(z || "").trim();
+      return !t || (!(thiBetragNormalisieren(t) >= 0) && !stiDatumNormalisieren(t));
+    });
+    if (treffer >= 2 && (datum >= 0 || nurText)) return { art: "breit", datum: datum, notiz: notiz, spalten: spaltenZiel };
+    if (datum >= 0 && betrag >= 0) return { art: "liste", datum: datum, betrag: betrag, kategorie: kategorie, notiz: notiz };
     return null;
   }
 
+  // Zusammenfassungs-Blaetter nicht importieren - sonst zaehlte alles doppelt.
+  var THI_BLATT_UEBERSPRINGEN = /^(jahr|treuhand|total|summe|zusammenfassung|ubersicht|uebersicht|abschluss)/;
+
   function thiAnalysieren(text) {
-    var r = { ausgaben: [], einnahmen: [], unbekannt: {}, totalzeilen: 0, ohneBetrag: 0, art: "" };
+    var r = { ausgaben: [], einnahmen: [], unbekannt: {}, totalzeilen: 0, ohneBetrag: 0, art: "",
+      blaetter: [], blaetterUebersprungen: [], ohneMonat: 0 };
     var zeilen = kiZeilenAufteilen(text);
     if (!zeilen.length) return r;
     var trenner = kiTrennzeichenErkennen(zeilen[0]);
     var kopf = null;
+    var blatt = { name: "", ueberspringen: false, monat: null, jahr: null };
+    var summen = {}, anzahl = {}, datenzeilen = 0, mitZaehler = 0;
 
-    function zuordnen(datum, rohKategorie, betrag, notiz) {
+    function kopfSetzen(k) {
+      kopf = k; r.art = r.art || k.art;
+      summen = {}; anzahl = {}; datenzeilen = 0; mitZaehler = 0;
+    }
+
+    function zuordnen(datum, rohKategorie, betrag, notiz, zahlart) {
       if (!(betrag > 0)) { r.ohneBetrag++; return; }
       var ziel = thiZiel(rohKategorie);
       if (ziel === "__einnahme") {
-        r.einnahmen.push({ datum: datum, betrag: betrag, notiz: notiz || String(rohKategorie || "").trim() });
+        r.einnahmen.push({ datum: datum, betrag: betrag, notiz: notiz || String(rohKategorie || "").trim(), zahlart: zahlart || thiZahlart(rohKategorie) });
       } else if (ziel) {
         r.ausgaben.push({ datum: datum, kategorie: ziel, betrag: betrag, notiz: notiz });
       } else if (ziel !== "") {
@@ -2677,17 +2722,62 @@
 
     zeilen.forEach(function (zeile) {
       var spalten = kiZeileSpalten(zeile, trenner);
+      // Beginn eines neuen Tabellenblatts (Datei-Import)
+      if (spalten[0] === "#BLATT") {
+        var name = String(spalten[1] || "").trim();
+        var m = thiMonatLesen(name);
+        blatt = { name: name, ueberspringen: THI_BLATT_UEBERSPRINGEN.test(kiTextNormalisieren(name)),
+          monat: m ? m.monat : null, jahr: m ? m.jahr : null };
+        (blatt.ueberspringen ? r.blaetterUebersprungen : r.blaetter).push(name);
+        kopf = null;
+        return;
+      }
+      if (blatt.ueberspringen) return;
       var neu = thiKopfErkennen(spalten);
-      if (neu) { kopf = neu; r.art = r.art || neu.art; return; }
+      if (neu) { kopfSetzen(neu); return; }
       if (spalten.some(function (z) { return THI_TOTAL.test(kiTextNormalisieren(z)); })) { r.totalzeilen++; return; }
 
+      if (!kopf) {
+        // Vor der Kopfzeile: Monat/Jahr des Blatts aus einer Datumszelle
+        // ("Jun 26" oben im Blatt) - genauer als nur der Blattname.
+        spalten.some(function (z) {
+          var d = stiDatumNormalisieren(z), mm = d ? null : thiMonatLesen(z);
+          if (d) { blatt.monat = Number(d.slice(5, 7)); blatt.jahr = Number(d.slice(0, 4)); return true; }
+          if (mm && mm.jahr) { blatt.monat = mm.monat; blatt.jahr = mm.jahr; return true; }
+          return false;
+        });
+      }
+
       if (kopf && kopf.art === "breit") {
-        var datumB = thiDatum(spalten[kopf.datum]);
-        if (!datumB) return;
-        var notizB = kopf.notiz >= 0 ? String(spalten[kopf.notiz] || "").trim() : "";
+        var datumB = kopf.datum >= 0 ? thiDatum(spalten[kopf.datum]) : "";
+        if (!datumB && kopf.datum < 0 && blatt.monat) datumB = thiMonatsende(blatt.jahr || thJahr, blatt.monat);
+        var werte = [];
         Object.keys(kopf.spalten).forEach(function (i) {
           var betrag = thiBetragNormalisieren(spalten[i]);
-          if (betrag > 0) zuordnen(datumB, kopf.spalten[i].roh, betrag, notizB);
+          if (betrag > 0) werte.push({ i: i, betrag: betrag });
+        });
+        if (!werte.length) return;
+        // Totalzeile ohne Beschriftung (z. B. Zeile 35 im Monatsblatt): jeder
+        // Betrag ist genau die Summe der Zeilen darueber.
+        // Mehrere Betraege in einer Zeile, alle = Summe darueber: Totalzeile.
+        // Ein einzelner Betrag nur, wenn er aus mindestens zwei Zeilen
+        // zusammenkommt und die Zeile - anders als die Datenzeilen - keine
+        // laufende Nummer/Notiz hat.
+        var istSumme = function (w) { return anzahl[w.i] >= 1 && Math.abs(summen[w.i] - w.betrag) < 0.005; };
+        var andereInhalte = spalten.some(function (z, i) { return String(z || "").trim() && !kopf.spalten[i] && i !== kopf.datum; });
+        if (werte.every(istSumme) &&
+            (werte.length >= 2 || (anzahl[werte[0].i] >= 2 && !andereInhalte && mitZaehler > datenzeilen / 2))) {
+          r.totalzeilen++;
+          return;
+        }
+        if (!datumB) { r.ohneMonat += werte.length; return; }
+        datenzeilen++;
+        if (andereInhalte) mitZaehler++;
+        var notizB = kopf.notiz >= 0 ? String(spalten[kopf.notiz] || "").trim() : "";
+        werte.forEach(function (w) {
+          summen[w.i] = (summen[w.i] || 0) + w.betrag;
+          anzahl[w.i] = (anzahl[w.i] || 0) + 1;
+          zuordnen(datumB, kopf.spalten[w.i].roh, w.betrag, notizB, kopf.spalten[w.i].zahlart);
         });
         return;
       }
@@ -2731,10 +2821,22 @@
       return "<tr><td>" + escapeHtml(k) + '</td><td class="re">' + proKat[k].anzahl + '</td><td class="re">' + chf(proKat[k].summe) + "</td></tr>";
     }).join("");
 
-    // Einnahmen pro Monat, mit Warnung, wo im Programm schon Auftraege sind
-    var proMonat = {};
-    r.einnahmen.forEach(function (e) { var m = e.datum.slice(0, 7); proMonat[m] = (proMonat[m] || 0) + e.betrag; });
+    // Einnahmen pro Monat und Zahlart (wie Stefans "Jahr"-Blatt), mit
+    // Warnung, wo im Programm schon Auftraege sind
+    var proMonat = {}, proMonatArt = {};
+    var ARTEN = ["Bar", "Karte", "Twint", "Rechnung", ""];
+    r.einnahmen.forEach(function (e) {
+      var m = e.datum.slice(0, 7);
+      proMonat[m] = (proMonat[m] || 0) + e.betrag;
+      proMonatArt[m] = proMonatArt[m] || {};
+      proMonatArt[m][e.zahlart || ""] = (proMonatArt[m][e.zahlart || ""] || 0) + e.betrag;
+    });
     var einMonate = Object.keys(proMonat).sort();
+    var artenDa = ARTEN.filter(function (a) { return einMonate.some(function (m) { return proMonatArt[m][a]; }); });
+    var proMonatAus = {};
+    r.ausgaben.forEach(function (e) { var m = e.datum.slice(0, 7); proMonatAus[m] = (proMonatAus[m] || 0) + e.betrag; });
+    var ausMonate = Object.keys(proMonatAus).sort();
+    function monatText(m) { return MONATSNAMEN_LANG[Number(m.slice(5)) - 1] + " " + m.slice(0, 4); }
     var ueberschneidung = einMonate.filter(function (m) { return thiMonatsUmsatz[m] > 0; });
 
     var zuordnungHtml = unbekannt.length
@@ -2756,7 +2858,11 @@
       chf(summe(r.einnahmen)) + ") erkannt" +
       (Object.keys(jahre).length ? " – Jahr " + Object.keys(jahre).sort().join(", ") : "") +
       (r.totalzeilen ? " · " + r.totalzeilen + (r.totalzeilen === 1 ? " Total-Zeile" : " Total-Zeilen") + " übersprungen" : "") +
-      ". Schon vorhandene Zeilen werden nicht doppelt eingetragen.</div>" +
+      ". Schon vorhandene Zeilen werden nicht doppelt eingetragen." +
+      (r.blaetter.length ? "<br>Gelesene Blätter: " + escapeHtml(r.blaetter.join(", ")) : "") +
+      (r.blaetterUebersprungen.length ? "<br>Übersprungen (Zusammenfassung, sonst doppelt): " + escapeHtml(r.blaetterUebersprungen.join(", ")) : "") +
+      (r.ohneMonat ? '<br><b>' + r.ohneMonat + " Beträge ohne erkennbaren Monat</b> wurden übersprungen – Blattname oder Datum oben im Blatt fehlt." : "") +
+      "</div>" +
       zuordnungHtml +
       (ueberschneidung.length
         ? '<p class="ma-hinweis">Achtung: Für ' + ueberschneidung.map(function (m) { return MONATSNAMEN_LANG[Number(m.slice(5)) - 1] + " " + m.slice(0, 4); }).join(", ") +
@@ -2768,13 +2874,25 @@
           katZeilen + '</tbody><tfoot><tr><td><b>Total Ausgaben</b></td><td class="re"><b>' + r.ausgaben.length + '</b></td><td class="re"><b>' + chf(summe(r.ausgaben)) +
           "</b></td></tr></tfoot></table></div>"
         : "") +
+      (ausMonate.length > 1
+        ? '<div class="tabellenrahmen"><table class="auflistung"><thead><tr><th>Ausgaben nach Monat</th><th class="re">CHF</th></tr></thead><tbody>' +
+          ausMonate.map(function (m) { return "<tr><td>" + monatText(m) + '</td><td class="re">' + chf(proMonatAus[m]) + "</td></tr>"; }).join("") +
+          '</tbody><tfoot><tr><td><b>Total Ausgaben</b></td><td class="re"><b>' + chf(summe(r.ausgaben)) + "</b></td></tr></tfoot></table></div>"
+        : "") +
       (einMonate.length
-        ? '<div class="tabellenrahmen"><table class="auflistung"><thead><tr><th>Einnahmen nach Monat</th><th class="re">CHF</th></tr></thead><tbody>' +
+        ? '<div class="tabellenrahmen thi-breit"><table class="auflistung"><thead><tr><th>Einnahmen nach Monat</th>' +
+          artenDa.map(function (a) { return '<th class="re">' + (a || "Andere") + "</th>"; }).join("") +
+          '<th class="re">Total</th></tr></thead><tbody>' +
           einMonate.map(function (m) {
-            return "<tr" + (thiMonatsUmsatz[m] > 0 ? ' class="thi-warn"' : "") + "><td>" + MONATSNAMEN_LANG[Number(m.slice(5)) - 1] + " " + m.slice(0, 4) +
-              '</td><td class="re">' + chf(proMonat[m]) + "</td></tr>";
+            return "<tr" + (thiMonatsUmsatz[m] > 0 ? ' class="thi-warn"' : "") + "><td>" + monatText(m) + "</td>" +
+              artenDa.map(function (a) { return '<td class="re">' + chf(proMonatArt[m][a] || 0) + "</td>"; }).join("") +
+              '<td class="re"><b>' + chf(proMonat[m]) + "</b></td></tr>";
           }).join("") +
-          '</tbody><tfoot><tr><td><b>Total Einnahmen</b></td><td class="re"><b>' + chf(summe(r.einnahmen)) + "</b></td></tr></tfoot></table></div>"
+          '</tbody><tfoot><tr><td><b>Total Einnahmen</b></td>' +
+          artenDa.map(function (a) {
+            return '<td class="re"><b>' + chf(einMonate.reduce(function (s2, m) { return s2 + (proMonatArt[m][a] || 0); }, 0)) + "</b></td>";
+          }).join("") +
+          '<td class="re"><b>' + chf(summe(r.einnahmen)) + "</b></td></tr></tfoot></table></div>"
         : "") +
       "</div>";
 
@@ -2790,12 +2908,17 @@
   // gewaehlte Jahr und das Vorjahr.
   function thiMonatsUmsatzLaden() {
     thiMonatsUmsatz = {};
+    // "Monat & Jahr" zaehlt die schon importierten Excel-Einnahmen mit -
+    // fuer die Warnung zaehlen nur die Auftraege, darum diese wieder abziehen.
     return Promise.all([thJahr, thJahr - 1].map(function (jahr) {
-      return invoke("monatsstatistik", { jahr: jahr }).then(function (zeilen) {
-        zeilen.forEach(function (z) {
-          thiMonatsUmsatz[jahr + "-" + String(z.monat).padStart(2, "0")] = z.bar + z.twint + z.karte + z.rechnung;
-        });
-      }).catch(function () {});
+      return Promise.all([invoke("monatsstatistik", { jahr: jahr }), invoke("einnahmen_extern_eines_jahres", { jahr: jahr })])
+        .then(function (e) {
+          e[0].forEach(function (z) {
+            thiMonatsUmsatz[jahr + "-" + String(z.monat).padStart(2, "0")] = z.bar + z.twint + z.karte + z.rechnung;
+          });
+          e[1].forEach(function (x) { thiMonatsUmsatz[x.datum.slice(0, 7)] -= x.betrag; });
+          Object.keys(thiMonatsUmsatz).forEach(function (m) { if (thiMonatsUmsatz[m] < 0.005) thiMonatsUmsatz[m] = 0; });
+        }).catch(function () {});
     }));
   }
 
@@ -2822,6 +2945,7 @@
       elThiText,
       thiVorschauZeichnen,
       function (meldung) { elThiFehler.textContent = meldung; elThiFehler.hidden = false; },
+      true,
       true
     );
   });
