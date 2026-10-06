@@ -177,7 +177,7 @@ pub fn stunden_importieren(
     zustand: State<AppZustand>,
     benutzer_id: i64,
     eingaben: Vec<stunden::NeuerStundenEintrag>,
-) -> Antwort<usize> {
+) -> Antwort<stunden::StundenImport> {
     let mut conn = verbindung_sperren(&zustand);
     stunden::stunden_importieren(&mut conn, benutzer_id, eingaben).map_err(|e| e.to_string())
 }
@@ -207,8 +207,8 @@ pub fn einstellungen_speichern(zustand: State<AppZustand>, eingabe: Einstellunge
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn datei_als_tabelle_lesen(pfad: String) -> Antwort<Vec<Vec<String>>> {
-    crate::datei::datei_als_tabelle_lesen(&pfad)
+pub fn datei_als_tabelle_lesen(pfad: String, alle_blaetter: Option<bool>) -> Antwort<Vec<Vec<String>>> {
+    crate::datei::datei_als_tabelle_lesen(&pfad, alle_blaetter.unwrap_or(false))
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -241,9 +241,33 @@ pub fn ausgabe_erfassen(zustand: State<AppZustand>, eingabe: NeueAusgabe) -> Ant
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn ausgaben_importieren(zustand: State<AppZustand>, eingaben: Vec<NeueAusgabe>) -> Antwort<usize> {
+pub fn ausgaben_importieren(zustand: State<AppZustand>, eingaben: Vec<NeueAusgabe>) -> Antwort<treuhand::ImportErgebnis> {
     let mut conn = verbindung_sperren(&zustand);
     treuhand::ausgaben_importieren(&mut conn, eingaben).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn einnahmen_importieren(zustand: State<AppZustand>, eingaben: Vec<treuhand::NeueEinnahme>) -> Antwort<treuhand::ImportErgebnis> {
+    let mut conn = verbindung_sperren(&zustand);
+    treuhand::einnahmen_importieren(&mut conn, eingaben).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn einnahmen_extern_eines_jahres(zustand: State<AppZustand>, jahr: i32) -> Antwort<Vec<treuhand::Einnahme>> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::einnahmen_extern_eines_jahres(&conn, jahr).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn einnahme_extern_loeschen(zustand: State<AppZustand>, id: i64) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::einnahme_extern_loeschen(&conn, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn treuhand_uebersicht(zustand: State<AppZustand>, jahr: i32) -> Antwort<treuhand::TreuhandUebersicht> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::treuhand_uebersicht(&conn, jahr).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]

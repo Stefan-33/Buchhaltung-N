@@ -449,7 +449,7 @@
       <div class="tafel">
         <div class="tafel-kopf">
           <h2 id="thJahrTitel">Jahr</h2>
-          <p>Geschäftsausgaben erfassen und den Jahresbericht für die Treuhand exportieren</p>
+          <p>Einnahmen und Ausgaben des Jahres – zum Vergleichen mit der eigenen Excel, dann den Bericht für die Treuhand exportieren</p>
         </div>
         <div class="abschnitt">
           <div class="knopfreihe" style="margin-top:0">
@@ -457,11 +457,15 @@
             <button class="knopf" id="thZurueckKnopf">Dieses Jahr</button>
             <button class="knopf" id="thNachKnopf">Nächstes Jahr ›</button>
           </div>
+        <div class="abschnitt">
+          <h3 style="margin-top:0">Übersicht</h3>
+          <div id="thUebersicht"></div>
+        </div>
         </div>
         <div class="abschnitt">
           <h3 style="margin-top:0">Ausgabe erfassen</h3>
           <div class="knopfreihe" style="margin-top:0">
-            <button type="button" class="knopf" id="thImportKnopf">Ausgaben importieren (Excel/CSV)…</button>
+            <button type="button" class="knopf knopf-voll" id="thImportKnopf">Aus Excel importieren (Ausgaben &amp; Einnahmen)…</button>
           </div>
           <div class="zeit-erfassen-zeile">
             <label class="feld" style="margin-top:0"><span>Datum</span><input id="th-datum" type="date"></label>
@@ -484,6 +488,15 @@
             <table class="auflistung">
               <thead><tr><th>Datum</th><th>Kategorie</th><th class="re">Betrag</th><th>Notiz</th><th>Beleg</th><th></th></tr></thead>
               <tbody id="thListe"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="abschnitt" id="thEinnahmenAbschnitt" hidden>
+          <h3>Einnahmen aus Excel (vor dem Programm)</h3>
+          <div class="tabellenrahmen">
+            <table class="auflistung">
+              <thead><tr><th>Datum</th><th class="re">Betrag</th><th>Notiz</th><th></th></tr></thead>
+              <tbody id="thEinnahmenListe"></tbody>
             </table>
           </div>
         </div>
@@ -719,11 +732,11 @@
   <div class="dialog-karte dialog-karte-breit">
     <h2>Stunden importieren</h2>
     <p class="login-hinweis" style="margin-top:0">
-      Aus Excel/LibreOffice die Spalten in <strong>genau dieser Reihenfolge</strong> kopieren und
-      unten einfügen: Datum, Beginn Vormittag, Ende Vormittag, Beginn Nachmittag, Ende Nachmittag,
-      Notiz (optional). Ein Zeitblock darf ganz leer bleiben (z. B. nur nachmittags gearbeitet) -
-      dann beide Felder dieses Blocks leer lassen. Datum als TT.MM.JJJJ oder JJJJ-MM-TT, Uhrzeit
-      als HH:MM.
+      Am einfachsten: <strong>Excel-Datei auswählen</strong> – das Programm sucht die Spalten
+      „Datum“, „Beginn“ und „Ende“ (Vormittag und Nachmittag) selbst, auch wenn jeder Monat
+      seine eigene Kopfzeile hat oder die Datei mehrere Tabellenblätter hat. Unten siehst du
+      pro Monat Tage und Stunden – zum Vergleichen mit deiner Excel. Tage, die schon
+      eingetragen sind, werden nicht doppelt übernommen.
     </p>
     <label class="feld" id="sti-fuer-wen-zeile" hidden>
       <span>Für wen?</span>
@@ -772,23 +785,20 @@
 <!-- ============ AUSGABEN IMPORTIEREN (Dialog) ============ -->
 <dialog id="ausgabenImportDialog" class="dialog">
   <div class="dialog-karte dialog-karte-breit">
-    <h2>Ausgaben importieren</h2>
+    <h2>Treuhand aus Excel importieren</h2>
     <p class="login-hinweis" style="margin-top:0">
-      Aus der bestehenden Treuhand-Excel die Tabelle markieren, kopieren (Strg+C) und
-      hier unten einfügen (Strg+V) — am liebsten mit Kopfzeile (z. B. Datum, Kategorie,
-      Betrag, Notiz). Die Reihenfolge der Spalten ist egal, sie wird automatisch erkannt.
-      Fehlt eine Kopfzeile, wird genau diese Reihenfolge angenommen. Die Kategorie muss
-      einer der bestehenden Kategorien entsprechen (z. B. "Büro" wird automatisch zu
-      "Büromaterialien" zugeordnet) — nicht erkannte Zeilen werden übersprungen und unten
-      aufgelistet, damit du sie in der Excel korrigieren kannst.
+      <strong>Excel-Datei auswählen</strong> (alle Tabellenblätter werden gelesen) oder die Tabelle
+      kopieren und unten einfügen. Erkannt wird beides: eine Liste mit Spalten wie
+      <em>Datum · Kategorie · Betrag · Notiz</em>, oder eine Tabelle mit <em>einer Spalte pro
+      Kategorie</em> (z. B. Telefon, Werbung, Auto …). Spalten wie „Einnahmen“, „Umsatz“, „Bar“,
+      „Karte“, „Twint“ werden als Einnahmen übernommen. Total-/Summenzeilen werden übersprungen,
+      schon importierte Zeilen nicht doppelt eingetragen. Unten die Kontrollsummen – bitte mit der
+      Excel vergleichen, bevor du importierst.
     </p>
     <div class="knopfreihe" style="margin-top:0">
       <button type="button" class="knopf" id="thi-datei">Excel-/CSV-Datei auswählen…</button>
     </div>
-    <textarea id="thi-text" class="textarea-eingabe" rows="6" placeholder="Hier einfügen…"></textarea>
-    <label class="schalter" style="margin-top:10px">
-      <input type="checkbox" id="thi-kopfzeile"> Erste Zeile ist Kopfzeile (wird nicht importiert)
-    </label>
+    <textarea id="thi-text" class="textarea-eingabe" rows="5" placeholder="Hier einfügen…"></textarea>
     <div id="thi-vorschau"></div>
     <p id="thi-fehler" class="login-fehler" hidden></p>
     <div class="knopfreihe" style="justify-content:flex-end">

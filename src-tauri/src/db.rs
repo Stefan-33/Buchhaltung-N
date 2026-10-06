@@ -163,6 +163,17 @@ fn schema_anlegen(conn: &Connection) -> rusqlite::Result<()> {
         -- welche Anmeldung/Meldung schon erledigt ist. Jaehrliche Meldungen
         -- tragen das Jahr im Schluessel (z.B. "lohnausweis:2026"). Nicht
         -- erledigt = keine Zeile.
+        -- Einnahmen, die vor dem Programm (laufendes Jahr) noch in Stefans
+        -- Excel erfasst wurden - zaehlen im Treuhand-Bericht zusammen mit
+        -- den Auftraegen.
+        CREATE TABLE IF NOT EXISTS einnahmen_extern (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            datum       TEXT NOT NULL,
+            betrag      REAL NOT NULL,
+            notiz       TEXT NOT NULL DEFAULT '',
+            erstellt_am TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
         CREATE TABLE IF NOT EXISTS mitarbeiter_formulare (
             benutzer_id INTEGER NOT NULL REFERENCES benutzer(id),
             formular    TEXT NOT NULL,

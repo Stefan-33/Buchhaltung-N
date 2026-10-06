@@ -37,6 +37,12 @@ pub struct NeuerStundenEintrag {
     pub notiz: String,
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+pub struct StundenImport {
+    pub neu: usize,
+    pub doppelt: usize,
+}
+
 #[derive(Debug, Serialize)]
 pub struct StundenEintrag {
     pub id: i64,
@@ -163,12 +169,17 @@ pub fn stunden_erfassen(conn: &Connection, benutzer_id: i64, eingabe: &NeuerStun
 /// damit auch die Stunden einer Mitarbeiterin nachtragen (z.B. aus einer
 /// bisher separat gefuehrten Excel-Liste). Zeilen ohne gueltigen
 /// Zeitblock werden uebersprungen statt den ganzen Import abzubrechen.
-pub fn stunden_importieren(conn: &mut Connection, benutzer_id: i64, eingaben: Vec<NeuerStundenEintrag>) -> Result<usize, StundenFehler> {
+///
+/// Ein Tag, der fuer diese Person mit genau denselben Zeiten schon
+/// eingetragen ist, wird uebersprungen (als "doppelt" gezaehlt) - so kann
+/// dieselbe Excel-Datei gefahrlos ein zweites Mal importiert werden, z.B.
+/// wenn sie inzwischen um neue Monate ergaenzt wurde.
+pub fn stunden_importieren(conn: &mut Connection, benutzer_id: i64, eingaben: Vec<NeuerStundenEintrag>) -> Result<StundenImport, StundenFehler> {
     let tx = conn.transaction()?;
-    let mut angelegt = 0usize;
+    let mut ergebnis = StundenImport { neu: 0, doppelt: 0 };
     for eingabe in eingaben {
         let datum = eingabe.datum.trim();
-        if datum.is_empty() {
+        if chrono::NaiveDate::parse_from_str(datum, "%Y-%m-%d").is_err() {
             continue;
         }
         let vm_beginn = normalisieren_nachsichtig(&eingabe.vm_beginn);
@@ -181,8 +192,24 @@ pub fn stunden_importieren(conn: &mut Connection, benutzer_id: i64, eingaben: Ve
         let vm_ende = if vm_beginn.is_some() { vm_ende } else { None };
         let nm_beginn = if nm_beginn.is_some() && nm_ende.is_some() { nm_beginn } else { None };
         let nm_ende = if nm_beginn.is_some() { nm_ende } else { None };
+        // Block ohne Dauer (z.B. 00:00-00:00 aus einer leeren Excel-Zelle)
+        // gar nicht erst speichern.
+        let (vm_beginn, vm_ende) = if block_minuten(&vm_beginn, &vm_ende) > 0 { (vm_beginn, vm_ende) } else { (None, None) };
+        let (nm_beginn, nm_ende) = if block_minuten(&nm_beginn, &nm_ende) > 0 { (nm_beginn, nm_ende) } else { (None, None) };
 
         if stunden_aus_bloecken(&vm_beginn, &vm_ende, &nm_beginn, &nm_ende) <= 0.0 {
+            continue;
+        }
+
+        let schon_da: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM arbeitsstunden WHERE benutzer_id = ?1 AND datum = ?2
+                AND IFNULL(vm_beginn,'') = IFNULL(?3,'') AND IFNULL(vm_ende,'') = IFNULL(?4,'')
+                AND IFNULL(nm_beginn,'') = IFNULL(?5,'') AND IFNULL(nm_ende,'') = IFNULL(?6,''))",
+            params![benutzer_id, datum, vm_beginn, vm_ende, nm_beginn, nm_ende],
+            |z| z.get(0),
+        )?;
+        if schon_da {
+            ergebnis.doppelt += 1;
             continue;
         }
 
@@ -191,10 +218,10 @@ pub fn stunden_importieren(conn: &mut Connection, benutzer_id: i64, eingaben: Ve
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![benutzer_id, datum, vm_beginn, vm_ende, nm_beginn, nm_ende, eingabe.notiz.trim()],
         )?;
-        angelegt += 1;
+        ergebnis.neu += 1;
     }
     tx.commit()?;
-    Ok(angelegt)
+    Ok(ergebnis)
 }
 
 /// Nur die eigenen Eintraege eines Monats - das ist die Ansicht der
@@ -347,8 +374,29 @@ mod tests {
             eintrag("2026-01-13", "08:30", "", "", ""), // Ende fehlt -> dieser Block verworfen, Zeile ohne Zeit -> uebersprungen
             eintrag("2026-01-19", "", "", "13:30", "16:00"),
         ];
-        let anzahl = stunden_importieren(&mut conn, 2, eingaben).unwrap();
-        assert_eq!(anzahl, 2);
+        let ergebnis = stunden_importieren(&mut conn, 2, eingaben).unwrap();
+        assert_eq!(ergebnis, StundenImport { neu: 2, doppelt: 0 });
         assert_eq!(eigene_stunden(&conn, 2, 2026, 1).unwrap().len(), 2);
+    }
+
+    // Dieselbe Datei nochmals importiert (z.B. um neue Monate ergaenzt):
+    // schon vorhandene Tage werden nicht doppelt eingetragen; ein leerer
+    // 00:00-00:00-Block wird nicht mitgespeichert.
+    #[test]
+    fn erneuter_import_traegt_nichts_doppelt_ein() {
+        let mut conn = test_db();
+        let erste = vec![eintrag("2026-01-12", "00:00", "00:00", "13:30", "16:00"), eintrag("2026-01-13", "08:00", "11:00", "", "")];
+        assert_eq!(stunden_importieren(&mut conn, 2, erste.clone()).unwrap(), StundenImport { neu: 2, doppelt: 0 });
+
+        let mut zweite = erste;
+        zweite.push(eintrag("2026-02-02", "", "", "13:30", "16:00"));
+        assert_eq!(stunden_importieren(&mut conn, 2, zweite).unwrap(), StundenImport { neu: 1, doppelt: 2 });
+
+        let januar = eigene_stunden(&conn, 2, 2026, 1).unwrap();
+        assert_eq!(januar.len(), 2);
+        assert_eq!(januar[0].vm_beginn, None, "00:00-00:00 ist kein Block");
+        assert_eq!(januar[0].stunden, 2.5);
+        // Fuer eine andere Person zaehlt derselbe Tag nicht als doppelt.
+        assert_eq!(stunden_importieren(&mut conn, 1, vec![eintrag("2026-01-12", "", "", "13:30", "16:00")]).unwrap().neu, 1);
     }
 }

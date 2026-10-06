@@ -122,22 +122,119 @@ pub fn ausgabe_erfassen(conn: &Connection, eingabe: &NeueAusgabe) -> Result<Ausg
 /// nochmals zur Sicherheit, falls doch eine durchrutscht. Beleg-Dateien
 /// gehoeren nicht zu einem Tabellen-Import (kein Dateipfad in Excel) und
 /// werden hier bewusst nicht beruecksichtigt.
-pub fn ausgaben_importieren(conn: &mut Connection, eingaben: Vec<NeueAusgabe>) -> Result<usize, TreuhandFehler> {
+///
+/// Eine Ausgabe mit gleichem Datum, gleicher Kategorie, gleichem Betrag und
+/// gleicher Notiz gibt es schon -> uebersprungen und als "doppelt"
+/// gezaehlt. So kann dieselbe Excel (z.B. jeden Monat um neue Zeilen
+/// ergaenzt) wieder importiert werden, ohne dass etwas doppelt zaehlt.
+pub fn ausgaben_importieren(conn: &mut Connection, eingaben: Vec<NeueAusgabe>) -> Result<ImportErgebnis, TreuhandFehler> {
     let tx = conn.transaction()?;
-    let mut angelegt = 0usize;
+    let mut ergebnis = ImportErgebnis::default();
     for eingabe in eingaben {
         let datum = eingabe.datum.trim();
-        if datum.is_empty() || !AUSGABEN_KATEGORIEN.contains(&eingabe.kategorie.as_str()) || !(eingabe.betrag > 0.0) {
+        if !datum_gueltig(datum) || !AUSGABEN_KATEGORIEN.contains(&eingabe.kategorie.as_str()) || !(eingabe.betrag > 0.0) {
+            continue;
+        }
+        let betrag = rappen(eingabe.betrag);
+        let schon_da: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM ausgaben WHERE datum = ?1 AND kategorie = ?2 AND ROUND(betrag, 2) = ?3 AND notiz = ?4)",
+            params![datum, eingabe.kategorie, betrag, eingabe.notiz.trim()],
+            |z| z.get(0),
+        )?;
+        if schon_da {
+            ergebnis.doppelt += 1;
             continue;
         }
         tx.execute(
             "INSERT INTO ausgaben (datum, kategorie, betrag, notiz) VALUES (?1, ?2, ?3, ?4)",
-            params![datum, eingabe.kategorie, eingabe.betrag, eingabe.notiz.trim()],
+            params![datum, eingabe.kategorie, betrag, eingabe.notiz.trim()],
         )?;
-        angelegt += 1;
+        ergebnis.neu += 1;
     }
     tx.commit()?;
-    Ok(angelegt)
+    Ok(ergebnis)
+}
+
+#[derive(Debug, Serialize, PartialEq, Default)]
+pub struct ImportErgebnis {
+    pub neu: usize,
+    pub doppelt: usize,
+}
+
+fn datum_gueltig(datum: &str) -> bool {
+    chrono::NaiveDate::parse_from_str(datum, "%Y-%m-%d").is_ok()
+}
+
+fn rappen(betrag: f64) -> f64 {
+    (betrag * 100.0).round() / 100.0
+}
+
+// ---------------------------------------------------------------------------
+// Einnahmen aus Excel: was vor dem Programm (laufendes Jahr) noch in Stefans
+// Excel erfasst wurde. Zaehlt im Treuhand-Bericht zusammen mit den
+// Auftraegen - sonst fehlten die Monate vor dem Umstieg.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct NeueEinnahme {
+    pub datum: String,
+    pub betrag: f64,
+    #[serde(default)]
+    pub notiz: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct Einnahme {
+    pub id: i64,
+    pub datum: String,
+    pub betrag: f64,
+    pub notiz: String,
+}
+
+/// Gleiche Regeln wie bei den Ausgaben: ungueltige Zeilen werden
+/// uebersprungen, schon vorhandene (Datum + Betrag + Notiz) nicht doppelt
+/// eingetragen.
+pub fn einnahmen_importieren(conn: &mut Connection, eingaben: Vec<NeueEinnahme>) -> Result<ImportErgebnis, TreuhandFehler> {
+    let tx = conn.transaction()?;
+    let mut ergebnis = ImportErgebnis::default();
+    for eingabe in eingaben {
+        let datum = eingabe.datum.trim();
+        if !datum_gueltig(datum) || !(eingabe.betrag > 0.0) {
+            continue;
+        }
+        let betrag = rappen(eingabe.betrag);
+        let schon_da: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM einnahmen_extern WHERE datum = ?1 AND ROUND(betrag, 2) = ?2 AND notiz = ?3)",
+            params![datum, betrag, eingabe.notiz.trim()],
+            |z| z.get(0),
+        )?;
+        if schon_da {
+            ergebnis.doppelt += 1;
+            continue;
+        }
+        tx.execute(
+            "INSERT INTO einnahmen_extern (datum, betrag, notiz) VALUES (?1, ?2, ?3)",
+            params![datum, betrag, eingabe.notiz.trim()],
+        )?;
+        ergebnis.neu += 1;
+    }
+    tx.commit()?;
+    Ok(ergebnis)
+}
+
+pub fn einnahmen_extern_eines_jahres(conn: &Connection, jahr: i32) -> Result<Vec<Einnahme>, TreuhandFehler> {
+    let mut stmt = conn.prepare(
+        "SELECT id, datum, betrag, notiz FROM einnahmen_extern WHERE strftime('%Y', datum) = ?1 ORDER BY datum, id",
+    )?;
+    let zeilen = stmt
+        .query_map([jahr.to_string()], |z| Ok(Einnahme { id: z.get(0)?, datum: z.get(1)?, betrag: z.get(2)?, notiz: z.get(3)? }))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(zeilen)
+}
+
+pub fn einnahme_extern_loeschen(conn: &Connection, id: i64) -> Result<(), TreuhandFehler> {
+    conn.execute("DELETE FROM einnahmen_extern WHERE id = ?1", [id])?;
+    Ok(())
 }
 
 pub fn ausgaben_eines_jahres(conn: &Connection, jahr: i32) -> Result<Vec<Ausgabe>, TreuhandFehler> {
@@ -179,21 +276,59 @@ fn einnahmen_eines_jahres(conn: &Connection, jahr: i32) -> rusqlite::Result<f64>
     )
 }
 
+fn einnahmen_extern_summe(conn: &Connection, jahr: i32) -> rusqlite::Result<f64> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(betrag), 0) FROM einnahmen_extern WHERE strftime('%Y', datum) = ?1",
+        [jahr.to_string()],
+        |z| z.get(0),
+    )
+}
+
+/// Die Zahlen des Treuhand-Berichts, fuer die Anzeige im Reiter (zum
+/// Vergleichen mit der eigenen Excel, bevor der Bericht rausgeht).
+#[derive(Debug, Serialize)]
+pub struct TreuhandUebersicht {
+    pub einnahmen_auftraege: f64,
+    pub einnahmen_excel: f64,
+    pub einnahmen: f64,
+    pub ausgaben_nach_kategorie: Vec<(String, f64)>,
+    pub ausgaben_gesamt: f64,
+    pub netto: f64,
+}
+
+pub fn treuhand_uebersicht(conn: &Connection, jahr: i32) -> Result<TreuhandUebersicht, TreuhandFehler> {
+    let einnahmen_auftraege = einnahmen_eines_jahres(conn, jahr)?;
+    let einnahmen_excel = einnahmen_extern_summe(conn, jahr)?;
+    let z = zusammenfassen(einnahmen_auftraege + einnahmen_excel, &ausgaben_eines_jahres(conn, jahr)?);
+    Ok(TreuhandUebersicht {
+        einnahmen_auftraege,
+        einnahmen_excel,
+        einnahmen: z.einnahmen,
+        ausgaben_nach_kategorie: z.ausgaben_nach_kategorie,
+        ausgaben_gesamt: z.ausgaben_gesamt,
+        netto: z.netto,
+    })
+}
+
 /// Jahresbericht fuer den Treuhaender: Einnahmen (aus den Auftraegen) +
 /// Ausgaben (nach Kategorie summiert) + Netto, als CSV mit Geschaefts-Kopf
 /// - entspricht inhaltlich Stefans bisherigem "Treuhand"-Tabellenblatt.
 pub fn treuhand_bericht_exportieren(conn: &Connection, jahr: i32) -> Result<PathBuf, String> {
     let einstellungen = crate::einstellungen::einstellungen_lesen(conn).map_err(|e| e.to_string())?;
-    let einnahmen = einnahmen_eines_jahres(conn, jahr).map_err(|e| e.to_string())?;
+    let einnahmen_auftraege = einnahmen_eines_jahres(conn, jahr).map_err(|e| e.to_string())?;
+    let einnahmen_excel = einnahmen_extern_summe(conn, jahr).map_err(|e| e.to_string())?;
     let ausgaben = ausgaben_eines_jahres(conn, jahr).map_err(|e| e.to_string())?;
-    let z = zusammenfassen(einnahmen, &ausgaben);
+    let z = zusammenfassen(einnahmen_auftraege + einnahmen_excel, &ausgaben);
 
     let mut csv = String::new();
     csv.push_str(&format!("{}\n", csv_feld(&einstellungen.geschaeft_name)));
     csv.push_str(&format!("{}\n", csv_feld(&einstellungen.geschaeft_zeile2)));
     csv.push_str(&format!("{}\n\n", csv_feld(&einstellungen.geschaeft_adresse)));
     csv.push_str(&format!("Treuhand-Bericht,Januar - Dezember {jahr}\n\n"));
-    csv.push_str(&format!("Einnahmen gemäss Kundenrechnungen,,{:.2}\n", z.einnahmen));
+    csv.push_str(&format!("Einnahmen gemäss Kundenrechnungen,,{:.2}\n", einnahmen_auftraege));
+    if einnahmen_excel > 0.0 {
+        csv.push_str(&format!("Einnahmen übernommen aus Excel,,{einnahmen_excel:.2}\n"));
+    }
     csv.push_str(&format!("Total Einnahmen,,{:.2}\n\n", z.einnahmen));
     csv.push_str("Ausgaben\n");
     for (kategorie, summe) in &z.ausgaben_nach_kategorie {
@@ -318,9 +453,53 @@ mod tests {
             ausgabe("2026-01-07", "Auto", 0.0),     // ungueltiger Betrag
             ausgabe("2026-01-08", "AHV", 30.0),
         ];
-        let angelegt = ausgaben_importieren(&mut conn, eingaben).unwrap();
-        assert_eq!(angelegt, 2);
+        let ergebnis = ausgaben_importieren(&mut conn, eingaben).unwrap();
+        assert_eq!(ergebnis, ImportErgebnis { neu: 2, doppelt: 0 });
         assert_eq!(ausgaben_eines_jahres(&conn, 2026).unwrap().len(), 2);
+    }
+
+    // Dieselbe Treuhand-Excel ein zweites Mal importiert (jetzt um einen
+    // Monat laenger): nichts zaehlt doppelt.
+    #[test]
+    fn erneuter_ausgaben_import_zaehlt_nichts_doppelt() {
+        let mut conn = test_db();
+        let erste = || vec![ausgabe("2026-01-05", "Telefon", 49.90), ausgabe("2026-02-05", "Telefon", 49.90)];
+        assert_eq!(ausgaben_importieren(&mut conn, erste()).unwrap(), ImportErgebnis { neu: 2, doppelt: 0 });
+        let mut zweite = erste();
+        zweite.push(ausgabe("2026-03-05", "Telefon", 49.90));
+        assert_eq!(ausgaben_importieren(&mut conn, zweite).unwrap(), ImportErgebnis { neu: 1, doppelt: 2 });
+        assert_eq!(ausgaben_eines_jahres(&conn, 2026).unwrap().len(), 3);
+    }
+
+    // Einnahmen aus Excel (Monate vor dem Programm) zaehlen in der Treuhand-
+    // Uebersicht zusammen mit den Auftraegen, ein zweiter Import nicht
+    // doppelt, und loeschen nimmt sie wieder raus.
+    #[test]
+    fn einnahmen_aus_excel_zaehlen_im_treuhand_total() {
+        let mut conn = test_db();
+        conn.execute_batch(
+            "INSERT INTO kunden (nummer, name) VALUES (101, 'Meier');
+             INSERT INTO auftraege (kunde_id, rechnungsnummer, datum, zahlart, summe) VALUES (1, 1300, '2026-10-02', 'Bar', 100.0);",
+        )
+        .unwrap();
+        let excel = || {
+            vec![
+                NeueEinnahme { datum: "2026-01-31".into(), betrag: 1500.0, notiz: "Januar".into() },
+                NeueEinnahme { datum: "2026-02-28".into(), betrag: 1250.5, notiz: "Februar".into() },
+                NeueEinnahme { datum: "2026-02-30".into(), betrag: 10.0, notiz: "".into() }, // kein echtes Datum
+            ]
+        };
+        assert_eq!(einnahmen_importieren(&mut conn, excel()).unwrap(), ImportErgebnis { neu: 2, doppelt: 0 });
+        assert_eq!(einnahmen_importieren(&mut conn, excel()).unwrap(), ImportErgebnis { neu: 0, doppelt: 2 });
+        ausgaben_importieren(&mut conn, vec![ausgabe("2026-01-05", "Telefon", 50.0)]).unwrap();
+
+        let u = treuhand_uebersicht(&conn, 2026).unwrap();
+        assert_eq!((u.einnahmen_auftraege, u.einnahmen_excel, u.einnahmen), (100.0, 2750.5, 2850.5));
+        assert_eq!((u.ausgaben_gesamt, u.netto), (50.0, 2800.5));
+
+        let id = einnahmen_extern_eines_jahres(&conn, 2026).unwrap()[0].id;
+        einnahme_extern_loeschen(&conn, id).unwrap();
+        assert_eq!(treuhand_uebersicht(&conn, 2026).unwrap().einnahmen_excel, 1250.5);
     }
 
     #[test]

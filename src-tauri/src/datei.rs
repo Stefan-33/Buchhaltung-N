@@ -8,7 +8,9 @@
 use calamine::{open_workbook_auto, Data, Reader};
 use std::path::Path;
 
-pub fn datei_als_tabelle_lesen(pfad: &str) -> Result<Vec<Vec<String>>, String> {
+/// `alle_blaetter`: bei Excel jedes Tabellenblatt nacheinander lesen
+/// (Stunden-Import: z.B. ein Blatt pro Jahr), sonst nur das erste.
+pub fn datei_als_tabelle_lesen(pfad: &str, alle_blaetter: bool) -> Result<Vec<Vec<String>>, String> {
     let pfad = Path::new(pfad);
     // calamine liest nur "echte" Tabellenformate (xlsx/xls/xlsb/ods) - CSV
     // ist reiner Text und wird separat behandelt, mit derselben Trennzeichen-
@@ -24,15 +26,21 @@ pub fn datei_als_tabelle_lesen(pfad: &str) -> Result<Vec<Vec<String>>, String> {
         csv_text_als_tabelle(inhalt.strip_prefix('\u{FEFF}').unwrap_or(&inhalt))
     } else {
         let mut arbeitsmappe = open_workbook_auto(pfad).map_err(|e| format!("Datei konnte nicht gelesen werden: {e}"))?;
-        let erstes_blatt = arbeitsmappe
-            .sheet_names()
-            .first()
-            .cloned()
-            .ok_or_else(|| "Die Datei enthält kein Tabellenblatt".to_string())?;
-        let bereich = arbeitsmappe
-            .worksheet_range(&erstes_blatt)
-            .map_err(|e| format!("Tabellenblatt konnte nicht gelesen werden: {e}"))?;
-        bereich.rows().map(|zeile| zeile.iter().map(zelle_zu_text).collect()).collect()
+        let mut blaetter = arbeitsmappe.sheet_names();
+        if blaetter.is_empty() {
+            return Err("Die Datei enthält kein Tabellenblatt".to_string());
+        }
+        if !alle_blaetter {
+            blaetter.truncate(1);
+        }
+        let mut zeilen = Vec::new();
+        for blatt in blaetter {
+            let bereich = arbeitsmappe
+                .worksheet_range(&blatt)
+                .map_err(|e| format!("Tabellenblatt „{blatt}“ konnte nicht gelesen werden: {e}"))?;
+            zeilen.extend(bereich.rows().map(|zeile| zeile.iter().map(zelle_zu_text).collect::<Vec<String>>()));
+        }
+        zeilen
     };
 
     Ok(tabelle.into_iter().filter(|zeile: &Vec<String>| zeile.iter().any(|z| !z.is_empty())).collect())
@@ -164,7 +172,7 @@ mod tests {
     #[test]
     fn liest_eine_einfache_csv_datei() {
         let mut datei = tempfile_schreiben("Name,Telefon\nMeier,079 111 22 33\nKeller,079 444 55 66\n");
-        let tabelle = datei_als_tabelle_lesen(datei.path_str()).unwrap();
+        let tabelle = datei_als_tabelle_lesen(datei.path_str(), false).unwrap();
         assert_eq!(tabelle, vec![
             vec!["Name".to_string(), "Telefon".to_string()],
             vec!["Meier".to_string(), "079 111 22 33".to_string()],
@@ -176,14 +184,14 @@ mod tests {
     #[test]
     fn leere_zeilen_werden_uebersprungen() {
         let mut datei = tempfile_schreiben("Name,Telefon\nMeier,079 111 22 33\n,\n\nKeller,079 444 55 66\n");
-        let tabelle = datei_als_tabelle_lesen(datei.path_str()).unwrap();
+        let tabelle = datei_als_tabelle_lesen(datei.path_str(), false).unwrap();
         assert_eq!(tabelle.len(), 3); // Kopfzeile + 2 echte Zeilen, die leere faellt raus
         datei.aufraeumen();
     }
 
     #[test]
     fn nicht_vorhandene_datei_gibt_verstaendlichen_fehler() {
-        let ergebnis = datei_als_tabelle_lesen("/pfad/der/nicht/existiert.csv");
+        let ergebnis = datei_als_tabelle_lesen("/pfad/der/nicht/existiert.csv", false);
         assert!(ergebnis.is_err());
     }
 

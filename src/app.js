@@ -434,7 +434,9 @@
   // Rust (liest Excel .xlsx/.xls oder CSV, siehe datei.rs) und setzt das
   // Ergebnis als Tab-getrennten Text ins Einfuege-Feld - ab da laeuft
   // exakt dieselbe Erkennung wie bei einem Copy&Paste aus Excel.
-  function dateiFuerImportLesen(zielTextarea, nachErfolg, aufFehler) {
+  // alleBlaetter: bei einer Excel-Datei jedes Tabellenblatt lesen (z. B.
+  // ein Blatt pro Jahr), nicht nur das erste.
+  function dateiFuerImportLesen(zielTextarea, nachErfolg, aufFehler, alleBlaetter) {
     if (!window.__TAURI__.dialog || !window.__TAURI__.dialog.open) {
       aufFehler("Dateiauswahl ist in dieser Programmversion nicht verfügbar.");
       return;
@@ -443,7 +445,7 @@
       .open({ multiple: false, filters: [{ name: "Tabellen", extensions: ["xlsx", "xls", "csv"] }] })
       .then(function (pfad) {
         if (!pfad) return; // Dialog abgebrochen
-        return invoke("datei_als_tabelle_lesen", { pfad: pfad }).then(function (tabelle) {
+        return invoke("datei_als_tabelle_lesen", { pfad: pfad, alle_blaetter: !!alleBlaetter }).then(function (tabelle) {
           zielTextarea.value = tabelle.map(function (zeile) { return zeile.join("\t"); }).join("\n");
           nachErfolg();
         });
@@ -1676,12 +1678,16 @@
   });
 
   // ================= STUNDEN IMPORTIEREN =================
-  // Fester Spalten-Reihenfolge (keine Kopfzeilen-Erkennung wie beim
-  // Kunden-Import): Datum, Vormittag-Beginn, Vormittag-Ende,
-  // Nachmittag-Beginn, Nachmittag-Ende, Notiz. Eine automatische Erkennung
-  // waere hier riskant, weil "Beginn"/"Ende" in Stefans Excel-Vorlage
-  // zweimal vorkommen (einmal pro Zeitblock) und sich nicht eindeutig
-  // zuordnen liessen.
+  // Liest Stefans bestehende Stunden-Excel so, wie sie ist: sucht die
+  // Kopfzeile ("Datum", "Beginn", "Ende", "Beginn", "Ende") selbst - egal
+  // in welcher Spalte sie steht und auch wenn sie pro Monat neu vorkommt -
+  // und nimmt die Spalten von dort. Ohne Kopfzeile gilt die feste
+  // Reihenfolge ab der Datums-Spalte: Datum, Beginn/Ende Vormittag,
+  // Beginn/Ende Nachmittag, Notiz.
+  //
+  // Excel-Eigenheit: eine als "hh:mm" formatierte Zelle mit einer ganzen
+  // Zahl drin zeigt in Excel "00:00", kommt aber als "1900-01-12" an -
+  // zaehlt deshalb nur die Uhrzeit, und ein Block 00:00-00:00 ist leer.
   var elStiDialog = document.getElementById("stundenImportDialog");
   var elStiFuerWenZeile = document.getElementById("sti-fuer-wen-zeile");
   var elStiFuerWen = document.getElementById("sti-fuer-wen");
@@ -1691,75 +1697,158 @@
   var elStiImportierenKnopf = document.getElementById("sti-importieren");
   var stiGueltigeEintraege = [];
 
+  // Ein echtes Arbeitsdatum (nicht Excels 1900-Platzhalter) -> "JJJJ-MM-TT".
   function stiDatumNormalisieren(s) {
     s = String(s || "").trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-    var ch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+    var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?$/);
+    if (iso) return Number(iso[1]) >= 1990 ? iso[1] + "-" + iso[2] + "-" + iso[3] : "";
+    var ch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/);
     if (ch) {
       var jahr = ch[3].length === 2 ? "20" + ch[3] : ch[3];
+      if (Number(jahr) < 1990 || Number(ch[2]) > 12 || Number(ch[1]) > 31) return "";
       return jahr + "-" + ch[2].padStart(2, "0") + "-" + ch[1].padStart(2, "0");
     }
     return "";
   }
 
+  // Uhrzeit "HH:MM" aus "8:30", "08:30:00", "08.30", "1900-01-12 02:30"
+  // oder einem Excel-Bruchteil wie "0.35416"; Excels Platzhalter-Datum
+  // ohne Uhrzeit ("1900-01-12") = 00:00. Sonst "".
   function stiZeitNormalisieren(s) {
-    var m = String(s || "").trim().match(/^(\d{1,2}):(\d{2})/);
-    return m ? m[1].padStart(2, "0") + ":" + m[2] : "";
+    s = String(s || "").trim();
+    var m = s.match(/(?:^|[ T])(\d{1,2})[:.](\d{2})(?::\d{2})?$/);
+    if (m && Number(m[1]) < 24 && Number(m[2]) < 60) return m[1].padStart(2, "0") + ":" + m[2];
+    if (/^(18|19)\d{2}-\d{2}-\d{2}$/.test(s)) return "00:00";
+    if (/^0?[.,]\d+$/.test(s)) {
+      var minuten = Math.round(parseFloat(s.replace(",", ".")) * 1440);
+      return String(Math.floor(minuten / 60)).padStart(2, "0") + ":" + String(minuten % 60).padStart(2, "0");
+    }
+    return "";
+  }
+
+  function stiMinuten(zeit) { var t = zeit.split(":"); return Number(t[0]) * 60 + Number(t[1]); }
+
+  // Ein Zeitblock zaehlt nur, wenn Ende nach Beginn liegt; 00:00-00:00
+  // (leer in Excel) ist einfach kein Block.
+  function stiBlock(beginn, ende) {
+    if (!beginn || !ende || stiMinuten(ende) <= stiMinuten(beginn)) return null;
+    return [beginn, ende];
+  }
+
+  // Kopfzeile erkennen: eine Zelle "Datum" und mindestens ein Paar
+  // Beginn/Ende (auch "von"/"bis") rechts davon.
+  function stiKopfErkennen(spalten) {
+    var normal = spalten.map(function (z) { return String(z || "").trim().toLowerCase(); });
+    var datum = normal.indexOf("datum");
+    if (datum < 0) return null;
+    var beginn = [], ende = [], notiz = -1;
+    normal.forEach(function (z, i) {
+      if (i <= datum) return;
+      if (/^(beginn|von|start|anfang)/.test(z)) beginn.push(i);
+      else if (/^(ende|bis|schluss)/.test(z)) ende.push(i);
+      else if (/^(notiz|bemerkung|kommentar)/.test(z)) notiz = i;
+    });
+    if (!beginn.length || !ende.length) return null;
+    var vmE = ende.filter(function (i) { return i > beginn[0]; })[0];
+    var nmB = beginn.filter(function (i) { return i > vmE; })[0];
+    var nmE = nmB === undefined ? undefined : ende.filter(function (i) { return i > nmB; })[0];
+    return { datum: datum, vmB: beginn[0], vmE: vmE, nmB: nmB, nmE: nmE, notiz: notiz };
   }
 
   // Nutzt dieselben Zerlege-Hilfsfunktionen wie "Kunden importieren"
-  // (kiZeilenAufteilen/kiTrennzeichenErkennen/kiZeileSpalten) - die
-  // Tab/Semikolon/Komma-Erkennung ist dieselbe, egal was eingefuegt wird.
+  // (kiZeilenAufteilen/kiTrennzeichenErkennen/kiZeileSpalten).
+  // Liefert { eintraege, ohneZeit }: Tage mit mindestens einem Zeitblock
+  // bzw. Tage mit Datum, aber ohne Zeiten (frei, Ferien, ...). Zeilen ganz
+  // ohne Datum (Kopf, Totale, Unterschriften) werden still uebergangen.
   function stiEintraegeAnalysieren(text) {
+    var ergebnis = { eintraege: [], ohneZeit: [] };
     var zeilen = kiZeilenAufteilen(text);
-    if (!zeilen.length) return [];
+    if (!zeilen.length) return ergebnis;
     var trenner = kiTrennzeichenErkennen(zeilen[0]);
-    var tabelle = zeilen.map(function (z) { return kiZeileSpalten(z, trenner); });
-    return tabelle
-      .map(function (spalten) {
-        return {
-          datum: stiDatumNormalisieren(spalten[0]),
-          vm_beginn: stiZeitNormalisieren(spalten[1]),
-          vm_ende: stiZeitNormalisieren(spalten[2]),
-          nm_beginn: stiZeitNormalisieren(spalten[3]),
-          nm_ende: stiZeitNormalisieren(spalten[4]),
-          notiz: String((spalten[5] || "")).trim(),
-        };
-      })
-      .filter(function (e) { return e.datum; }); // kein erkennbares Datum -> z.B. die Kopfzeile selbst
+    var kopf = null;
+    zeilen.forEach(function (zeile) {
+      var spalten = kiZeileSpalten(zeile, trenner);
+      var neuerKopf = stiKopfErkennen(spalten);
+      if (neuerKopf) { kopf = neuerKopf; return; }
+
+      // Ohne Kopfzeile: erste Zelle mit einem echten Datum, die Zeiten
+      // folgen direkt rechts davon.
+      var spalte = kopf;
+      if (!spalte) {
+        var d = spalten.findIndex(function (z) { return !!stiDatumNormalisieren(z); });
+        if (d < 0) return;
+        spalte = { datum: d, vmB: d + 1, vmE: d + 2, nmB: d + 3, nmE: d + 4, notiz: d + 5 };
+      }
+      var datum = stiDatumNormalisieren(spalten[spalte.datum]);
+      if (!datum) return;
+      var tag = stiTagBauen(datum, spalte, function (i) { return i === undefined || i < 0 ? "" : spalten[i]; });
+      (tag.vm_beginn || tag.nm_beginn ? ergebnis.eintraege : ergebnis.ohneZeit).push(tag);
+    });
+    return ergebnis;
   }
 
+  function stiTagBauen(datum, spalte, zelle) {
+    var vm = stiBlock(stiZeitNormalisieren(zelle(spalte.vmB)), stiZeitNormalisieren(zelle(spalte.vmE)));
+    var nm = stiBlock(stiZeitNormalisieren(zelle(spalte.nmB)), stiZeitNormalisieren(zelle(spalte.nmE)));
+    // Nur ein Block, und der liegt am Nachmittag -> als Nachmittag fuehren.
+    if (vm && !nm && stiMinuten(vm[0]) >= 12 * 60) { nm = vm; vm = null; }
+    var notiz = String(zelle(spalte.notiz) || "").trim();
+    return {
+      datum: datum,
+      vm_beginn: vm ? vm[0] : "", vm_ende: vm ? vm[1] : "",
+      nm_beginn: nm ? nm[0] : "", nm_ende: nm ? nm[1] : "",
+      notiz: stiZeitNormalisieren(notiz) || stiDatumNormalisieren(notiz) ? "" : notiz,
+    };
+  }
+
+  function stiStunden(e) {
+    var min = 0;
+    if (e.vm_beginn) min += stiMinuten(e.vm_ende) - stiMinuten(e.vm_beginn);
+    if (e.nm_beginn) min += stiMinuten(e.nm_ende) - stiMinuten(e.nm_beginn);
+    return min / 60;
+  }
+
+  // Vorschau pro Monat (Tage und Stunden) - zum Vergleichen mit den
+  // Monatstotalen in der eigenen Excel, statt hunderte Zeilen zu zeigen.
   function stiVorschauZeichnen() {
-    var eintraege = stiEintraegeAnalysieren(elStiText.value);
-    if (!eintraege.length) {
-      elStiVorschau.innerHTML = "";
-      elStiImportierenKnopf.disabled = true;
-      stiGueltigeEintraege = [];
+    var analyse = stiEintraegeAnalysieren(elStiText.value);
+    stiGueltigeEintraege = analyse.eintraege;
+    elStiImportierenKnopf.disabled = stiGueltigeEintraege.length === 0;
+    if (!stiGueltigeEintraege.length && !analyse.ohneZeit.length) {
+      elStiVorschau.innerHTML = elStiText.value.trim()
+        ? '<div class="import-zusammenfassung">Keine Zeile mit Datum gefunden – ist es die richtige Datei?</div>'
+        : "";
       return;
     }
 
-    stiGueltigeEintraege = eintraege.filter(function (e) {
-      return (e.vm_beginn && e.vm_ende) || (e.nm_beginn && e.nm_ende);
+    var monate = {};
+    stiGueltigeEintraege.forEach(function (e) {
+      var m = e.datum.slice(0, 7);
+      monate[m] = monate[m] || { tage: 0, stunden: 0 };
+      monate[m].tage += 1;
+      monate[m].stunden += stiStunden(e);
     });
-    var ungueltig = eintraege.length - stiGueltigeEintraege.length;
-
-    var zeilenHtml = eintraege.slice(0, 50).map(function (e) {
-      var hatZeit = (e.vm_beginn && e.vm_ende) || (e.nm_beginn && e.nm_ende);
-      var klasse = hatZeit ? "" : ' class="zeile-uebersprungen"';
-      var vm = e.vm_beginn && e.vm_ende ? e.vm_beginn + "–" + e.vm_ende : "–";
-      var nm = e.nm_beginn && e.nm_ende ? e.nm_beginn + "–" + e.nm_ende : "–";
-      return "<tr" + klasse + "><td>" + escapeHtml(e.datum) + "</td><td>" + vm + "</td><td>" + nm + "</td><td>" + escapeHtml(e.notiz) + "</td></tr>";
-    }).join("");
-    var mehrHinweis = eintraege.length > 50 ? " (zeigt die ersten 50 von " + eintraege.length + ")" : "";
+    var schluessel = Object.keys(monate).sort();
+    var total = schluessel.reduce(function (s, m) { return s + monate[m].stunden; }, 0);
+    function monatName(m) { return MONATSNAMEN_LANG[Number(m.slice(5, 7)) - 1] + " " + m.slice(0, 4); }
+    function std(x) { return (Math.round(x * 100) / 100).toLocaleString("de-CH"); }
 
     elStiVorschau.innerHTML =
-      '<div class="import-zusammenfassung">' + stiGueltigeEintraege.length + " Einträge werden importiert" +
-      (ungueltig ? ", " + ungueltig + " ohne erkennbaren Zeitblock werden übersprungen" : "") + mehrHinweis + "</div>" +
-      '<div class="tabellenrahmen"><table class="auflistung"><thead><tr>' +
-      "<th>Datum</th><th>Vormittag</th><th>Nachmittag</th><th>Notiz</th>" +
-      "</tr></thead><tbody>" + zeilenHtml + "</tbody></table></div>";
-
-    elStiImportierenKnopf.disabled = stiGueltigeEintraege.length === 0;
+      '<div class="import-zusammenfassung">' +
+      (stiGueltigeEintraege.length
+        ? "<b>" + stiGueltigeEintraege.length + (stiGueltigeEintraege.length === 1 ? " Arbeitstag" : " Arbeitstage") + "</b> mit zusammen <b>" + std(total) + " Stunden</b> erkannt" +
+          (schluessel.length > 1 ? " (" + monatName(schluessel[0]) + " bis " + monatName(schluessel[schluessel.length - 1]) + ")" : "")
+        : "Keine Arbeitszeiten erkannt") +
+      (analyse.ohneZeit.length ? " · " + analyse.ohneZeit.length + (analyse.ohneZeit.length === 1 ? " Tag" : " Tage") + " ohne Zeiten wird übersprungen".replace("wird", analyse.ohneZeit.length === 1 ? "wird" : "werden") : "") +
+      ". Schon vorhandene Tage werden nicht doppelt eingetragen.</div>" +
+      (schluessel.length
+        ? '<div class="tabellenrahmen" style="max-height:260px;overflow:auto"><table class="auflistung"><thead><tr>' +
+          '<th>Monat</th><th class="re">Tage</th><th class="re">Stunden</th></tr></thead><tbody>' +
+          schluessel.map(function (m) {
+            return "<tr><td>" + monatName(m) + '</td><td class="re">' + monate[m].tage + '</td><td class="re">' + std(monate[m].stunden) + "</td></tr>";
+          }).join("") +
+          '</tbody><tfoot><tr><td><b>Total</b></td><td class="re"><b>' + stiGueltigeEintraege.length + '</b></td><td class="re"><b>' + std(total) + "</b></td></tr></tfoot></table></div>"
+        : "");
   }
 
   document.getElementById("stundenImportKnopf").addEventListener("click", function () {
@@ -1797,7 +1886,8 @@
     dateiFuerImportLesen(
       elStiText,
       stiVorschauZeichnen,
-      function (meldung) { elStiFehler.textContent = meldung; elStiFehler.hidden = false; }
+      function (meldung) { elStiFehler.textContent = meldung; elStiFehler.hidden = false; },
+      true
     );
   });
 
@@ -1810,10 +1900,11 @@
     elStiFehler.hidden = true;
     knopfSperren(elStiImportierenKnopf, true);
     invoke("stunden_importieren", { benutzer_id: fuerWenId, eingaben: stiGueltigeEintraege })
-      .then(function (anzahl) {
+      .then(function (ergebnis) {
         elStiDialog.close();
         if (fuerWenId === maPersonIdAktuell()) stMonatLaden();
-        alert(anzahl + (anzahl === 1 ? " Eintrag wurde importiert." : " Einträge wurden importiert."));
+        alert(ergebnis.neu + (ergebnis.neu === 1 ? " Tag wurde importiert." : " Tage wurden importiert.") +
+          (ergebnis.doppelt ? "\n" + ergebnis.doppelt + " waren schon vorhanden und wurden übersprungen." : ""));
       })
       .catch(function (e) {
         elStiFehler.textContent = fehlerText(e);
@@ -2168,6 +2259,54 @@
     invoke("ausgaben_eines_jahres", { jahr: thJahr })
       .then(thListeZeichnen)
       .catch(function (e) { elThListe.innerHTML = '<tr><td colspan="6" class="leer">' + fehlerText(e) + "</td></tr>"; });
+    thUebersichtLaden();
+    thEinnahmenLaden();
+  }
+
+  // Dieselben Zahlen wie im Treuhand-Bericht - zum Vergleichen mit der
+  // eigenen Excel, bevor der Bericht an die Treuhand geht.
+  function thUebersichtLaden() {
+    var el = document.getElementById("thUebersicht");
+    invoke("treuhand_uebersicht", { jahr: thJahr })
+      .then(function (u) {
+        var kategorien = u.ausgaben_nach_kategorie.filter(function (k) { return k[1] > 0; });
+        el.innerHTML =
+          '<div class="th-uebersicht">' +
+          '<dl class="th-zahlen">' +
+          "<dt>Einnahmen aus Aufträgen</dt><dd>" + chf(u.einnahmen_auftraege) + "</dd>" +
+          (u.einnahmen_excel ? "<dt>Einnahmen aus Excel übernommen</dt><dd>" + chf(u.einnahmen_excel) + "</dd>" : "") +
+          '<dt class="th-total">Total Einnahmen</dt><dd class="th-total">' + chf(u.einnahmen) + "</dd>" +
+          '<dt class="th-total">Total Ausgaben</dt><dd class="th-total">' + chf(u.ausgaben_gesamt) + "</dd>" +
+          '<dt class="th-netto">Netto</dt><dd class="th-netto">' + chf(u.netto) + "</dd>" +
+          "</dl>" +
+          (kategorien.length
+            ? '<dl class="th-zahlen th-kategorien">' + kategorien.map(function (k) {
+                return "<dt>" + escapeHtml(k[0]) + "</dt><dd>" + chf(k[1]) + "</dd>";
+              }).join("") + "</dl>"
+            : "") +
+          "</div>";
+      })
+      .catch(function (e) { el.innerHTML = '<p class="leer">' + escapeHtml(fehlerText(e)) + "</p>"; });
+  }
+
+  function thEinnahmenLaden() {
+    invoke("einnahmen_extern_eines_jahres", { jahr: thJahr })
+      .then(function (liste) {
+        document.getElementById("thEinnahmenAbschnitt").hidden = !liste.length;
+        var el = document.getElementById("thEinnahmenListe");
+        el.innerHTML = liste.map(function (e) {
+          return "<tr><td>" + datumKurz(e.datum) + '</td><td class="re">' + chf(e.betrag) + "</td><td>" + escapeHtml(e.notiz) +
+            '</td><td><button type="button" class="weg" data-einnahme-id="' + e.id + '" title="Einnahme löschen">×</button></td></tr>';
+        }).join("");
+        el.querySelectorAll("button[data-einnahme-id]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            invoke("einnahme_extern_loeschen", { id: Number(btn.dataset.einnahmeId) })
+              .then(thJahrLaden)
+              .catch(function (e) { alert(fehlerText(e)); });
+          });
+        });
+      })
+      .catch(function () {});
   }
 
   function thListeZeichnen(ausgaben) {
@@ -2270,28 +2409,30 @@
       .catch(function (e) { echo.textContent = fehlerText(e); echo.style.color = "var(--faden)"; });
   });
 
-  // ================= AUSGABEN IMPORTIEREN =================
-  // Fuer Stefans bestehende Treuhand-Excel: dieselben Zerlege-/Datei-
-  // Hilfsfunktionen wie beim Kunden-/Stunden-Import (kiZeilenAufteilen,
-  // kiTrennzeichenErkennen, kiZeileSpalten, dateiFuerImportLesen,
-  // kiTextNormalisieren, stiDatumNormalisieren), nur mit eigener
-  // Spalten-/Kategorie-Erkennung.
+  // ================= TREUHAND AUS EXCEL IMPORTIEREN =================
+  // Fuer Stefans laufendes Jahr, das noch in Excel steht. Versteht zwei
+  // Aufbauten, je ab einer Kopfzeile irgendwo in der Tabelle (auch pro
+  // Monat/Tabellenblatt neu):
+  // - Liste: Datum | Kategorie | Betrag | Notiz
+  // - Tabelle mit einer Spalte pro Kategorie (Telefon, Werbung, ...), dazu
+  //   evtl. Einnahmen-Spalten (Einnahmen, Umsatz, Bar, Karte, Twint)
+  // Total-/Summenzeilen werden uebersprungen (sonst zaehlte alles doppelt),
+  // unbekannte Kategorien kann man in der Vorschau von Hand zuordnen. Die
+  // Kontrollsummen pro Kategorie sind zum Vergleich mit der Excel.
   var elThiDialog = document.getElementById("ausgabenImportDialog");
   var elThiText = document.getElementById("thi-text");
-  var elThiKopfzeile = document.getElementById("thi-kopfzeile");
   var elThiVorschau = document.getElementById("thi-vorschau");
   var elThiFehler = document.getElementById("thi-fehler");
   var elThiImportierenKnopf = document.getElementById("thi-importieren");
-  var thiGueltigeEintraege = [];
+  var thiErgebnis = { ausgaben: [], einnahmen: [] };
   var thiKategorienGeladen = [];
-  var thiKopfzeileErkannt = false;
+  var thiVonHand = {}; // normalisierte Excel-Bezeichnung -> Kategorie | "__einnahme" | "" (ueberspringen)
+  var thiMonatsUmsatz = {}; // "JJJJ-MM" -> Umsatz aus Auftraegen im Programm
 
-  var THI_FELD_SYNONYME = {
-    datum: ["datum", "tag"],
-    kategorie: ["kategorie", "art", "grund", "rubrik", "bereich"],
-    betrag: ["betrag", "kosten", "chf", "ausgabe", "summe", "preis"],
-    notiz: ["notiz", "bemerkung", "anmerkung", "beschreibung", "text"],
-  };
+  var THI_EINNAHME = /^(einnahm|umsatz|ertrag|erls|erloes|kundenrechnung|bar$|karte$|kartenzahlung|twint$|rechnung$|rechnungen$)/;
+  var THI_TOTAL = /^(total|summe|gesamt|zwischentotal|bertrag|uebertrag|saldo)/;
+  var MONATE_ERKENNEN = ["jan", "feb", "mar", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov", "dez"];
+
   // Hilft bei Kategorien, die inhaltlich passen, aber nicht wortgleich mit
   // der festen Kategorie-Liste sind (z. B. "Lohn" -> "Mitarbeiterin").
   var THI_KATEGORIE_SYNONYME = {
@@ -2305,21 +2446,6 @@
     "Büromaterialien": ["buero", "papier", "drucker"],
     "Werbung": ["werbung", "inserat", "marketing"],
   };
-
-  function thiKopfzeileZuordnen(spalten) {
-    var zuordnung = {};
-    spalten.forEach(function (roh, i) {
-      var text = kiTextNormalisieren(roh);
-      if (!text) return;
-      Object.keys(THI_FELD_SYNONYME).forEach(function (feld) {
-        if (zuordnung[feld] !== undefined) return;
-        if (THI_FELD_SYNONYME[feld].some(function (s) { return text.indexOf(s) !== -1; })) {
-          zuordnung[feld] = i;
-        }
-      });
-    });
-    return zuordnung;
-  }
 
   // Findet die passende Kategorie aus der festen Liste (ausgaben_kategorien) -
   // zuerst wortgleich, dann als Teilstring in beide Richtungen, zuletzt ueber
@@ -2358,77 +2484,207 @@
     return isFinite(n) ? n : NaN;
   }
 
-  function thiEintraegeBauen(tabelle, zuordnung, kopfzeileUeberspringen) {
-    var zeilen = kopfzeileUeberspringen ? tabelle.slice(1) : tabelle;
-    var hatZuordnung = Object.keys(zuordnung).length > 0;
-    var di = hatZuordnung ? zuordnung.datum : 0;
-    var ki = hatZuordnung ? zuordnung.kategorie : 1;
-    var bi = hatZuordnung ? zuordnung.betrag : 2;
-    var ni = hatZuordnung ? zuordnung.notiz : 3;
-    return zeilen.map(function (spalten) {
-      var kategorieRoh = ki !== undefined ? spalten[ki] : "";
-      return {
-        datum: stiDatumNormalisieren(di !== undefined ? spalten[di] : ""),
-        kategorie_roh: String(kategorieRoh || "").trim(),
-        kategorie: thiKategoriePassend(kategorieRoh),
-        betrag: thiBetragNormalisieren(bi !== undefined ? spalten[bi] : ""),
-        notiz: String((ni !== undefined ? spalten[ni] : "") || "").trim(),
-      };
+  // Datum aus einer Zelle: echtes Datum, sonst ein Monatsname ("Januar",
+  // "Feb. 2026") -> Letzter des Monats (Jahr aus der Zelle, sonst das im
+  // Reiter gewaehlte Jahr).
+  function thiDatum(zelle) {
+    var d = stiDatumNormalisieren(zelle);
+    if (d) return d;
+    var roh = String(zelle || "").trim().toLowerCase().replace("ä", "a");
+    var m = roh.match(/^([a-z]{3})[a-z]*\.?\s*(\d{4})?$/);
+    if (!m) return "";
+    var monat = MONATE_ERKENNEN.indexOf(m[1]);
+    if (monat < 0) return "";
+    var jahr = m[2] ? Number(m[2]) : thJahr;
+    var letzter = new Date(jahr, monat + 1, 0).getDate();
+    return jahr + "-" + String(monat + 1).padStart(2, "0") + "-" + letzter;
+  }
+
+  function thiZiel(rohText) {
+    var norm = kiTextNormalisieren(rohText);
+    if (!norm) return null;
+    if (Object.prototype.hasOwnProperty.call(thiVonHand, norm)) return thiVonHand[norm];
+    if (THI_EINNAHME.test(norm)) return "__einnahme";
+    return thiKategoriePassend(rohText);
+  }
+
+  // Kopfzeile erkennen. Liste: Datum + Betrag (+ Kategorie). Breit: Datum
+  // + mindestens zwei Spalten, die eine Kategorie oder Einnahmen sind.
+  function thiKopfErkennen(spalten) {
+    var norm = spalten.map(kiTextNormalisieren);
+    var datum = norm.findIndex(function (z) { return /^(datum|tag|monat|zeitraum)$/.test(z); });
+    if (datum < 0) return null;
+    function finde(re) { return norm.findIndex(function (z, i) { return i !== datum && re.test(z); }); }
+    var betrag = finde(/^(betrag|kosten|chf|preis|ausgabe$|ausgaben$|summe$)/);
+    var kategorie = finde(/^(kategorie|art|konto|rubrik|bereich|grund)$/);
+    var notiz = finde(/^(notiz|bemerkung|anmerkung|beschreibung|text|lieferant|was|beleg)/);
+    var spaltenZiel = {};
+    var treffer = 0;
+    norm.forEach(function (z, i) {
+      if (!z || i === datum || i === notiz || i === betrag || i === kategorie || THI_TOTAL.test(z)) return;
+      var ziel = thiZiel(spalten[i]);
+      spaltenZiel[i] = { roh: String(spalten[i]).trim(), ziel: ziel };
+      if (ziel) treffer++;
+    });
+    if (treffer >= 2) return { art: "breit", datum: datum, notiz: notiz, spalten: spaltenZiel };
+    if (betrag >= 0) return { art: "liste", datum: datum, betrag: betrag, kategorie: kategorie, notiz: notiz };
+    return null;
+  }
+
+  function thiAnalysieren(text) {
+    var r = { ausgaben: [], einnahmen: [], unbekannt: {}, totalzeilen: 0, ohneBetrag: 0, art: "" };
+    var zeilen = kiZeilenAufteilen(text);
+    if (!zeilen.length) return r;
+    var trenner = kiTrennzeichenErkennen(zeilen[0]);
+    var kopf = null;
+
+    function zuordnen(datum, rohKategorie, betrag, notiz) {
+      if (!(betrag > 0)) { r.ohneBetrag++; return; }
+      var ziel = thiZiel(rohKategorie);
+      if (ziel === "__einnahme") {
+        r.einnahmen.push({ datum: datum, betrag: betrag, notiz: notiz || String(rohKategorie || "").trim() });
+      } else if (ziel) {
+        r.ausgaben.push({ datum: datum, kategorie: ziel, betrag: betrag, notiz: notiz });
+      } else if (ziel !== "") {
+        var name = String(rohKategorie || "").trim() || "(ohne Kategorie)";
+        var u = r.unbekannt[name] = r.unbekannt[name] || { anzahl: 0, summe: 0 };
+        u.anzahl++; u.summe += betrag;
+      }
+    }
+
+    zeilen.forEach(function (zeile) {
+      var spalten = kiZeileSpalten(zeile, trenner);
+      var neu = thiKopfErkennen(spalten);
+      if (neu) { kopf = neu; r.art = r.art || neu.art; return; }
+      if (spalten.some(function (z) { return THI_TOTAL.test(kiTextNormalisieren(z)); })) { r.totalzeilen++; return; }
+
+      if (kopf && kopf.art === "breit") {
+        var datumB = thiDatum(spalten[kopf.datum]);
+        if (!datumB) return;
+        var notizB = kopf.notiz >= 0 ? String(spalten[kopf.notiz] || "").trim() : "";
+        Object.keys(kopf.spalten).forEach(function (i) {
+          var betrag = thiBetragNormalisieren(spalten[i]);
+          if (betrag > 0) zuordnen(datumB, kopf.spalten[i].roh, betrag, notizB);
+        });
+        return;
+      }
+      var k = kopf;
+      if (!k) {
+        // Ohne Kopfzeile: Datum, Kategorie, Betrag, Notiz ab der ersten Datums-Zelle.
+        var d = spalten.findIndex(function (z) { return !!stiDatumNormalisieren(z); });
+        if (d < 0) return;
+        k = { datum: d, kategorie: d + 1, betrag: d + 2, notiz: d + 3 };
+        r.art = r.art || "fest";
+      }
+      var datum = thiDatum(spalten[k.datum]);
+      if (!datum) return;
+      zuordnen(datum, k.kategorie >= 0 ? spalten[k.kategorie] : "", thiBetragNormalisieren(spalten[k.betrag]),
+        k.notiz >= 0 ? String(spalten[k.notiz] || "").trim() : "");
+    });
+    return r;
+  }
+
+  function thiVorschauZeichnen() {
+    var r = thiAnalysieren(elThiText.value);
+    thiErgebnis = r;
+    elThiImportierenKnopf.disabled = !r.ausgaben.length && !r.einnahmen.length;
+    var unbekannt = Object.keys(r.unbekannt);
+    if (!elThiText.value.trim()) { elThiVorschau.innerHTML = ""; return; }
+    if (!r.ausgaben.length && !r.einnahmen.length && !unbekannt.length) {
+      elThiVorschau.innerHTML = '<div class="import-zusammenfassung">Keine Zeile mit Datum und Betrag gefunden – ist es die richtige Datei?</div>';
+      return;
+    }
+    function summe(liste) { return liste.reduce(function (s, e) { return s + e.betrag; }, 0); }
+    var jahre = {};
+    r.ausgaben.concat(r.einnahmen).forEach(function (e) { jahre[e.datum.slice(0, 4)] = true; });
+
+    // Kontrollsummen pro Kategorie
+    var proKat = {};
+    r.ausgaben.forEach(function (e) {
+      var k = proKat[e.kategorie] = proKat[e.kategorie] || { anzahl: 0, summe: 0 };
+      k.anzahl++; k.summe += e.betrag;
+    });
+    var katZeilen = thiKategorienGeladen.filter(function (k) { return proKat[k]; }).map(function (k) {
+      return "<tr><td>" + escapeHtml(k) + '</td><td class="re">' + proKat[k].anzahl + '</td><td class="re">' + chf(proKat[k].summe) + "</td></tr>";
+    }).join("");
+
+    // Einnahmen pro Monat, mit Warnung, wo im Programm schon Auftraege sind
+    var proMonat = {};
+    r.einnahmen.forEach(function (e) { var m = e.datum.slice(0, 7); proMonat[m] = (proMonat[m] || 0) + e.betrag; });
+    var einMonate = Object.keys(proMonat).sort();
+    var ueberschneidung = einMonate.filter(function (m) { return thiMonatsUmsatz[m] > 0; });
+
+    var zuordnungHtml = unbekannt.length
+      ? '<div class="thi-zuordnung"><b>Nicht erkannte Kategorien</b> – bitte zuordnen (sonst werden sie übersprungen):' +
+        unbekannt.map(function (name) {
+          var u = r.unbekannt[name];
+          return '<label><span>' + escapeHtml(name) + ' <small>(' + u.anzahl + "×, " + chf(u.summe) + ")</small></span>" +
+            '<select data-thi-roh="' + escapeHtml(name) + '"><option value="">– überspringen –</option>' +
+            '<option value="__einnahme">Einnahme</option>' +
+            thiKategorienGeladen.map(function (k) { return '<option value="' + escapeHtml(k) + '">' + escapeHtml(k) + "</option>"; }).join("") +
+            "</select></label>";
+        }).join("") + "</div>"
+      : "";
+
+    elThiVorschau.innerHTML =
+      '<div class="import-zusammenfassung">' +
+      "<b>" + r.ausgaben.length + (r.ausgaben.length === 1 ? " Ausgabe" : " Ausgaben") + "</b> (" + chf(summe(r.ausgaben)) + ") und <b>" +
+      r.einnahmen.length + (r.einnahmen.length === 1 ? " Einnahme" : " Einnahmen") + "</b> (" +
+      chf(summe(r.einnahmen)) + ") erkannt" +
+      (Object.keys(jahre).length ? " – Jahr " + Object.keys(jahre).sort().join(", ") : "") +
+      (r.totalzeilen ? " · " + r.totalzeilen + (r.totalzeilen === 1 ? " Total-Zeile" : " Total-Zeilen") + " übersprungen" : "") +
+      ". Schon vorhandene Zeilen werden nicht doppelt eingetragen.</div>" +
+      zuordnungHtml +
+      (ueberschneidung.length
+        ? '<p class="ma-hinweis">Achtung: Für ' + ueberschneidung.map(function (m) { return MONATSNAMEN_LANG[Number(m.slice(5)) - 1] + " " + m.slice(0, 4); }).join(", ") +
+          " sind im Programm schon Aufträge erfasst – diese Einnahmen nur übernehmen, wenn sie nicht dieselben sind, sonst zählen sie doppelt.</p>"
+        : "") +
+      '<div class="thi-kontrolle">' +
+      (katZeilen
+        ? '<div class="tabellenrahmen"><table class="auflistung"><thead><tr><th>Ausgaben nach Kategorie</th><th class="re">Anzahl</th><th class="re">CHF</th></tr></thead><tbody>' +
+          katZeilen + '</tbody><tfoot><tr><td><b>Total Ausgaben</b></td><td class="re"><b>' + r.ausgaben.length + '</b></td><td class="re"><b>' + chf(summe(r.ausgaben)) +
+          "</b></td></tr></tfoot></table></div>"
+        : "") +
+      (einMonate.length
+        ? '<div class="tabellenrahmen"><table class="auflistung"><thead><tr><th>Einnahmen nach Monat</th><th class="re">CHF</th></tr></thead><tbody>' +
+          einMonate.map(function (m) {
+            return "<tr" + (thiMonatsUmsatz[m] > 0 ? ' class="thi-warn"' : "") + "><td>" + MONATSNAMEN_LANG[Number(m.slice(5)) - 1] + " " + m.slice(0, 4) +
+              '</td><td class="re">' + chf(proMonat[m]) + "</td></tr>";
+          }).join("") +
+          '</tbody><tfoot><tr><td><b>Total Einnahmen</b></td><td class="re"><b>' + chf(summe(r.einnahmen)) + "</b></td></tr></tfoot></table></div>"
+        : "") +
+      "</div>";
+
+    elThiVorschau.querySelectorAll("select[data-thi-roh]").forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        thiVonHand[kiTextNormalisieren(sel.dataset.thiRoh)] = sel.value;
+        thiVorschauZeichnen();
+      });
     });
   }
 
-  function thiVorschauZeichnen(kopfzeileCheckboxVonHand) {
-    var zeilen = kiZeilenAufteilen(elThiText.value);
-    if (!zeilen.length) {
-      elThiVorschau.innerHTML = "";
-      elThiImportierenKnopf.disabled = true;
-      thiGueltigeEintraege = [];
-      return;
-    }
-    var trenner = kiTrennzeichenErkennen(zeilen[0]);
-    var tabelle = zeilen.map(function (z) { return kiZeileSpalten(z, trenner); });
-    var zuordnung = thiKopfzeileZuordnen(tabelle[0]);
-    // Mindestens Datum, Kategorie und Betrag erkannt -> das ist eine Kopfzeile.
-    thiKopfzeileErkannt = ["datum", "kategorie", "betrag"].filter(function (f) { return zuordnung[f] !== undefined; }).length >= 2;
-    // Nur automatisch setzen, wenn nicht gerade von Hand umgeschaltet wurde -
-    // sonst wuerde jeder Tastendruck die manuelle Wahl sofort ueberschreiben.
-    if (!kopfzeileCheckboxVonHand) elThiKopfzeile.checked = thiKopfzeileErkannt;
-
-    var eintraege = thiEintraegeBauen(tabelle, zuordnung, elThiKopfzeile.checked);
-    thiGueltigeEintraege = eintraege.filter(function (e) { return e.datum && e.kategorie && e.betrag > 0; });
-    var ungueltig = eintraege.length - thiGueltigeEintraege.length;
-
-    var zeilenHtml = eintraege.slice(0, 50).map(function (e) {
-      var gueltig = e.datum && e.kategorie && e.betrag > 0;
-      var klasse = gueltig ? "" : ' class="zeile-uebersprungen"';
-      var kategorieAnzeige = e.kategorie || (e.kategorie_roh ? "? " + escapeHtml(e.kategorie_roh) : "–");
-      return "<tr" + klasse + "><td>" + escapeHtml(e.datum || "–") + "</td><td>" + escapeHtml(kategorieAnzeige) + '</td><td class="re">' +
-        (e.betrag > 0 ? chf(e.betrag) : "–") + "</td><td>" + escapeHtml(e.notiz) + "</td></tr>";
-    }).join("");
-    var mehrHinweis = eintraege.length > 50 ? " (zeigt die ersten 50 von " + eintraege.length + ")" : "";
-    var hinweisKopf = thiKopfzeileErkannt
-      ? "Kopfzeile erkannt – Spalten automatisch zugeordnet."
-      : "Keine Kopfzeile erkannt – Reihenfolge Datum, Kategorie, Betrag, Notiz angenommen.";
-
-    elThiVorschau.innerHTML =
-      '<div class="import-zusammenfassung">' + hinweisKopf + " " + thiGueltigeEintraege.length + " Einträge werden importiert" +
-      (ungueltig ? ", " + ungueltig + " mit fehlendem Datum/Betrag oder unbekannter Kategorie werden übersprungen (mit „?“ markiert)" : "") +
-      mehrHinweis + "</div>" +
-      '<div class="tabellenrahmen"><table class="auflistung"><thead><tr>' +
-      "<th>Datum</th><th>Kategorie</th><th class=\"re\">Betrag</th><th>Notiz</th>" +
-      "</tr></thead><tbody>" + zeilenHtml + "</tbody></table></div>";
-
-    elThiImportierenKnopf.disabled = thiGueltigeEintraege.length === 0;
+  // Umsatz der Auftraege pro Monat (fuer die Doppelt-Warnung) - fuer das
+  // gewaehlte Jahr und das Vorjahr.
+  function thiMonatsUmsatzLaden() {
+    thiMonatsUmsatz = {};
+    return Promise.all([thJahr, thJahr - 1].map(function (jahr) {
+      return invoke("monatsstatistik", { jahr: jahr }).then(function (zeilen) {
+        zeilen.forEach(function (z) {
+          thiMonatsUmsatz[jahr + "-" + String(z.monat).padStart(2, "0")] = z.bar + z.twint + z.karte + z.rechnung;
+        });
+      }).catch(function () {});
+    }));
   }
 
   document.getElementById("thImportKnopf").addEventListener("click", function () {
     elThiText.value = "";
     elThiVorschau.innerHTML = "";
     elThiFehler.hidden = true;
-    elThiKopfzeile.checked = false;
     elThiImportierenKnopf.disabled = true;
-    thiGueltigeEintraege = [];
+    thiErgebnis = { ausgaben: [], einnahmen: [] };
+    thiVonHand = {};
     var weiter = function () { elThiDialog.showModal(); elThiText.focus(); };
+    thiMonatsUmsatzLaden();
     if (thiKategorienGeladen.length) {
       weiter();
     } else {
@@ -2436,30 +2692,37 @@
     }
   });
   document.getElementById("thi-abbrechen").addEventListener("click", function () { elThiDialog.close(); });
-  elThiText.addEventListener("input", debounce(function () { thiVorschauZeichnen(false); }, 150));
-  elThiKopfzeile.addEventListener("change", function () { thiVorschauZeichnen(true); });
+  elThiText.addEventListener("input", debounce(thiVorschauZeichnen, 150));
   document.getElementById("thi-datei").addEventListener("click", function () {
     elThiFehler.hidden = true;
     dateiFuerImportLesen(
       elThiText,
       thiVorschauZeichnen,
-      function (meldung) { elThiFehler.textContent = meldung; elThiFehler.hidden = false; }
+      function (meldung) { elThiFehler.textContent = meldung; elThiFehler.hidden = false; },
+      true
     );
   });
 
   document.getElementById("thi-importieren").addEventListener("click", function () {
-    if (!thiGueltigeEintraege.length) return;
-    var eingaben = thiGueltigeEintraege.map(function (e) {
+    var r = thiErgebnis;
+    if (!r.ausgaben.length && !r.einnahmen.length) return;
+    var ausgaben = r.ausgaben.map(function (e) {
       return { datum: e.datum, kategorie: e.kategorie, betrag: e.betrag, notiz: e.notiz, beleg_quelle: null };
     });
     elThiFehler.hidden = true;
     knopfSperren(elThiImportierenKnopf, true);
-    invoke("ausgaben_importieren", { eingaben: eingaben })
-      .then(function (anzahl) {
+    var leer = Promise.resolve({ neu: 0, doppelt: 0 });
+    var a = ausgaben.length ? invoke("ausgaben_importieren", { eingaben: ausgaben }) : leer;
+    a.then(function (ra) {
+      var b = r.einnahmen.length ? invoke("einnahmen_importieren", { eingaben: r.einnahmen }) : leer;
+      return b.then(function (rb) {
         elThiDialog.close();
         thJahrLaden();
-        alert(anzahl + (anzahl === 1 ? " Ausgabe wurde importiert." : " Ausgaben wurden importiert."));
-      })
+        var doppelt = ra.doppelt + rb.doppelt;
+        alert("Importiert: " + ra.neu + " Ausgaben und " + rb.neu + " Einnahmen." +
+          (doppelt ? "\n" + doppelt + " Zeilen waren schon vorhanden und wurden übersprungen." : ""));
+      });
+    })
       .catch(function (e) { elThiFehler.textContent = fehlerText(e); elThiFehler.hidden = false; })
       .finally(function () { knopfSperren(elThiImportierenKnopf, false); });
   });
