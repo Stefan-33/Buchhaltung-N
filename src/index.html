@@ -79,6 +79,10 @@
     </label>
     <p id="einrichtung-fehler" class="login-fehler" hidden></p>
     <button type="button" id="einrichtung-knopf" class="knopf knopf-voll login-knopf">Konto anlegen &amp; loslegen</button>
+    <p class="login-hinweis" style="margin:14px 0 0">
+      Wurde schon alles auf einem anderen PC eingerichtet?
+      <button type="button" class="link-knopf" id="einrichtung-paket">Daten-Paket einspielen …</button>
+    </p>
   </form>
 </div>
 
@@ -668,6 +672,25 @@
           <div class="knopfreihe">
             <button class="knopf knopf-voll" id="eiKartenKnopf">Speichern</button>
           </div>
+        </div>
+      </div>
+
+      <div class="tafel" id="eiUebergabeTafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2>Daten auf einen anderen PC übergeben</h2>
+          <p>Alles hier einrichten und als eine Datei weitergeben – z. B. auf einem USB-Stick</p>
+        </div>
+        <div class="abschnitt">
+          <ol class="schritte">
+            <li><b>Hier:</b> „Daten-Paket erstellen“ – die Datei erscheint im Ordner „Dokumente \ Atelierbuch Straub \ Übergabe“.</li>
+            <li>Die Datei auf den anderen PC bringen (USB-Stick). Sie enthält alle Kundendaten – nicht öffentlich teilen.</li>
+            <li><b>Dort:</b> Programm installieren, beim ersten Start „Daten-Paket einspielen“ wählen. Anmelden mit den Konten von hier.</li>
+          </ol>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="eiPaketErstellen">Daten-Paket erstellen</button>
+            <button class="knopf" id="eiPaketEinspielen">Daten-Paket einspielen …</button>
+          </div>
+          <p id="eiPaketEcho" class="login-fehler" style="color:var(--gruen)" hidden></p>
         </div>
       </div>
 

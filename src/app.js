@@ -135,6 +135,7 @@
     document.getElementById("eiGeschaeftTafel").hidden = istMitarbeiterin;
     document.getElementById("eiKartenTafel").hidden = istMitarbeiterin;
     document.getElementById("eiLohnTafel").hidden = istMitarbeiterin;
+    document.getElementById("eiUebergabeTafel").hidden = istMitarbeiterin;
     document.getElementById("eiBelegTafel").hidden = istMitarbeiterin;
     if (istMitarbeiterin) {
       // Falls von einem frueheren Login noch der Monat-Reiter aktiv war.
@@ -3845,6 +3846,57 @@
       if (t.id === "r-stunden") maLaden();
       if (t.id === "r-treuhand") thLaden();
     });
+  });
+
+  // ================= DATEN-UEBERGABE (anderer PC) =================
+  // Stefan richtet auf seinem PC alles ein und gibt die Daten als eine
+  // Datei weiter (uebergabe.rs); beim Vater wird sie eingespielt - in den
+  // Einstellungen oder gleich beim ersten Start.
+  function paketEinspielen(knopf, echo) {
+    if (!window.__TAURI__.dialog || !window.__TAURI__.dialog.open) return;
+    window.__TAURI__.dialog
+      .open({ multiple: false, filters: [{ name: "Atelierbuch-Daten", extensions: ["atelierbuch", "sqlite3"] }] })
+      .then(function (pfad) {
+        if (!pfad) return;
+        return invoke("datenpaket_pruefen", { pfad: pfad }).then(function (info) {
+          var frage = "Daten-Paket einspielen?\n\n" +
+            info.kunden + " Kundinnen, " + info.auftraege + " Aufträge, " + info.ausgaben + " Ausgaben, " +
+            info.einnahmen_excel + " Einnahmen aus Excel, " + info.stunden + " Stunden-Einträge.\n" +
+            "Anmelden danach mit: " + (info.konten.join(", ") || "–") + ".\n\n" +
+            "Die Daten auf diesem PC werden dadurch ersetzt (vorher wird automatisch gesichert).";
+          if (!confirm(frage)) return;
+          knopfSperren(knopf, true);
+          return invoke("datenpaket_einspielen", { pfad: pfad }).then(function () {
+            alert("Eingespielt. Das Programm startet neu – bitte mit einem der Konten anmelden: " + info.konten.join(", "));
+            location.reload();
+          });
+        });
+      })
+      .catch(function (e) {
+        knopfSperren(knopf, false);
+        if (echo) { echo.style.color = "var(--faden)"; echo.textContent = fehlerText(e); echo.hidden = false; }
+        else alert(fehlerText(e));
+      });
+  }
+
+  document.getElementById("eiPaketErstellen").addEventListener("click", function () {
+    var k = this, echo = document.getElementById("eiPaketEcho");
+    knopfSperren(k, true);
+    echo.hidden = true;
+    invoke("datenpaket_erstellen")
+      .then(function (pfad) {
+        echo.style.color = "var(--gruen)";
+        echo.textContent = "Erstellt: " + pfad + " – diese Datei auf den anderen PC bringen.";
+        echo.hidden = false;
+      })
+      .catch(function (e) { echo.style.color = "var(--faden)"; echo.textContent = fehlerText(e); echo.hidden = false; })
+      .finally(function () { knopfSperren(k, false); });
+  });
+  document.getElementById("eiPaketEinspielen").addEventListener("click", function () {
+    paketEinspielen(this, document.getElementById("eiPaketEcho"));
+  });
+  document.getElementById("einrichtung-paket").addEventListener("click", function () {
+    paketEinspielen(this, document.getElementById("einrichtung-fehler"));
   });
 
   // ================= AUTOMATISCHES UPDATE =================

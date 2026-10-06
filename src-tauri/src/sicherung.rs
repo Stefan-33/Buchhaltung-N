@@ -46,9 +46,11 @@ pub fn jetzt_sichern(conn: &Connection) -> Result<PathBuf, String> {
     let ziel_ordner = sicherungs_ordner().join(&heute);
     fs::create_dir_all(&ziel_ordner).map_err(|e| e.to_string())?;
 
-    // 1) Volle Datenbankdatei kopieren.
+    // 1) Volle Datenbankdatei kopieren - ueber SQLite selbst statt als
+    //    Datei, damit auch noch nicht zurueckgeschriebene Aenderungen aus
+    //    der WAL-Datei sicher mit drin sind.
     let db_kopie = ziel_ordner.join("atelierbuch.sqlite3");
-    fs::copy(crate::db::datenbank_pfad(), &db_kopie).map_err(|e| e.to_string())?;
+    crate::uebergabe::datenbank_kopieren(conn, &db_kopie)?;
 
     // 2) Kundenliste als CSV - dieselbe "saubere Auflistung" wie die
     //    Export-Vorschau aus der Skizze, nur jetzt ein echter Download.

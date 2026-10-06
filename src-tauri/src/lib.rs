@@ -11,6 +11,7 @@ mod quittung;
 mod sicherung;
 mod stunden;
 mod treuhand;
+mod uebergabe;
 mod update;
 
 use std::sync::Mutex;
@@ -84,6 +85,9 @@ pub fn run() {
             commands::einnahme_extern_loeschen,
             commands::treuhand_uebersicht,
             commands::update_pruefen,
+            commands::datenpaket_erstellen,
+            commands::datenpaket_pruefen,
+            commands::datenpaket_einspielen,
             commands::update_installieren,
             commands::ausgaben_eines_jahres,
             commands::ausgabe_loeschen,

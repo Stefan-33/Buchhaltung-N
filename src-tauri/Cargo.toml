@@ -28,7 +28,7 @@ tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 # "bundled": SQLite wird mit einkompiliert, auf dem Windows-PC braucht es
 # keine separate Installation - genau das will Stefan.
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 # Passwort-Hashing ohne C-Abhaengigkeiten - baut sauber auch beim
 # Cross-Compile fuer Windows in der GitHub-Actions-Pipeline.
 argon2 = "0.5"

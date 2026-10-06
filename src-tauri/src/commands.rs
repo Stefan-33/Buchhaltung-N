@@ -450,3 +450,32 @@ pub async fn update_installieren(app: tauri::AppHandle) -> Antwort<()> {
     app.exit(0);
     Ok(())
 }
+
+/// Daten-Paket fuer einen anderen PC (uebergabe.rs) - zeigt es danach im
+/// Explorer, zum Kopieren auf einen USB-Stick.
+#[tauri::command(rename_all = "snake_case")]
+pub fn datenpaket_erstellen(zustand: State<AppZustand>) -> Antwort<String> {
+    let conn = verbindung_sperren(&zustand);
+    let pfad = crate::uebergabe::datenpaket_erstellen(&conn)?;
+    crate::uebergabe::im_explorer_zeigen(&pfad);
+    Ok(pfad.display().to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn datenpaket_pruefen(pfad: String) -> Antwort<crate::uebergabe::PaketInfo> {
+    crate::uebergabe::datenpaket_pruefen(std::path::Path::new(&pfad))
+}
+
+/// Ersetzt die Daten dieses PCs durch das Paket. Sind schon Daten da, wird
+/// vorher automatisch gesichert (Sicherungs-Ordner) - nichts geht verloren.
+#[tauri::command(rename_all = "snake_case")]
+pub fn datenpaket_einspielen(zustand: State<AppZustand>, pfad: String) -> Antwort<()> {
+    let mut conn = verbindung_sperren(&zustand);
+    let hat_daten: bool = conn
+        .query_row("SELECT (SELECT COUNT(*) FROM benutzer) + (SELECT COUNT(*) FROM kunden) > 0", [], |z| z.get(0))
+        .unwrap_or(true);
+    if hat_daten {
+        sicherung::jetzt_sichern(&conn)?;
+    }
+    crate::uebergabe::datenpaket_einspielen(&mut conn, std::path::Path::new(&pfad))
+}
