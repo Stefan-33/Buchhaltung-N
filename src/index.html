@@ -111,6 +111,11 @@
       <button role="tab" id="r-stunden" aria-selected="false" aria-controls="t-stunden">Mitarbeiter</button>
       <button role="tab" id="r-einstellungen" aria-selected="false" aria-controls="t-einstellungen">Einstellungen</button>
     </div>
+    <div class="update-hinweis" id="updateHinweis" hidden>
+      <b>Neue Version bereit</b>
+      <span id="updateHinweisText"></span>
+      <button type="button" class="knopf knopf-voll" id="updateJetztKnopf">Jetzt aktualisieren</button>
+    </div>
     <div class="kopf-benutzer">
       <span id="angemeldet-als"></span>
       <button class="knopf" id="abmeldenKnopf">Abmelden</button>
@@ -663,6 +668,21 @@
           <div class="knopfreihe">
             <button class="knopf knopf-voll" id="eiKartenKnopf">Speichern</button>
           </div>
+        </div>
+      </div>
+
+      <div class="tafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2>Programm-Version</h2>
+          <p>Das Programm sucht beim Start selbst nach einer neuen Version – Ihre Daten bleiben beim Aktualisieren erhalten</p>
+        </div>
+        <div class="abschnitt">
+          <p id="eiVersionText" style="margin:0;font-size:14px">Wird geprüft …</p>
+          <div class="knopfreihe">
+            <button class="knopf" id="eiUpdateKnopf">Nach neuer Version suchen</button>
+            <button class="knopf knopf-voll" id="eiUpdateInstallieren" hidden>Jetzt aktualisieren</button>
+          </div>
+          <p id="eiUpdateEcho" class="login-fehler" hidden></p>
         </div>
       </div>
 

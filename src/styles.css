@@ -430,3 +430,9 @@ tr.ma-gewaehlt > td{background:var(--gruen-matt);}
 tr.thi-warn > td{background:var(--faden-matt);}
 .thi-kontrolle table.auflistung{min-width:0;width:100%;}
 .aktionen{display:inline-flex;gap:4px;white-space:nowrap;}
+
+/* ---------- Hinweis "Neue Version" in der Seitenleiste ---------- */
+.update-hinweis{margin:10px 0 0;padding:10px 12px;border-radius:10px;background:var(--gruen-matt);display:grid;gap:6px;font-size:13px;}
+.update-hinweis b{color:var(--gruen-tief);font-size:13.5px;}
+.update-hinweis span{color:var(--tinte-2);}
+.update-hinweis[hidden]{display:none;}

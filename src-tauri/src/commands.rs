@@ -424,3 +424,29 @@ pub fn beleg_muster_oeffnen(eingabe: Einstellungen) -> Antwort<String> {
     sicherung::mit_standardprogramm_oeffnen(&pfad)?;
     Ok(pfad.display().to_string())
 }
+
+/// Sucht auf der Release-Seite nach einer neueren Version (update.rs) -
+/// im Hintergrund, damit die Oberflaeche beim Warten aufs Netz nicht haengt.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn update_pruefen() -> Antwort<crate::update::UpdateInfo> {
+    tauri::async_runtime::spawn_blocking(crate::update::update_pruefen)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Laedt die neue Version herunter, startet den Installer und beendet das
+/// Programm, damit er die Dateien ersetzen kann. "/P" = ohne Rueckfragen
+/// mit Fortschrittsbalken, "/R" = Programm danach wieder starten
+/// (Schalter des Tauri-Installers; unbekannte ignoriert er).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn update_installieren(app: tauri::AppHandle) -> Antwort<()> {
+    let pfad = tauri::async_runtime::spawn_blocking(crate::update::update_herunterladen)
+        .await
+        .map_err(|e| e.to_string())??;
+    std::process::Command::new(&pfad)
+        .args(["/P", "/R"])
+        .spawn()
+        .map_err(|e| format!("Der Installer konnte nicht gestartet werden ({e})."))?;
+    app.exit(0);
+    Ok(())
+}

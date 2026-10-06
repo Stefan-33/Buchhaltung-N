@@ -49,3 +49,6 @@ calamine = { version = "0.30.1", features = ["dates"] }
 # Kopf-/Fusszeile (Datum, Seitentitel, URL, Seitenzahl) hinzu, die sich
 # nicht abschalten laesst; ein selbst erzeugtes PDF hat so etwas nicht.
 printpdf = { version = "0.12.8", features = ["html", "jpeg", "png"] }
+# Automatisches Update (update.rs): holt version.json und die neue
+# Installationsdatei von der GitHub-Release-Seite "Neueste Version".
+ureq = "2"

@@ -852,15 +852,22 @@
 
   function statusWahlHtml(a) {
     var art = { "In Arbeit": "arbeit", "Abholbereit": "bereit" }[a.status] || "angenommen";
-    return '<select class="status-wahl st-' + art + '" data-status-id="' + a.id + '" aria-label="Status">' +
+    // "Abgeholt" laesst sich nicht einfach setzen - abgeschlossen ist ein
+    // Auftrag erst mit dem Abrechnen (Zahlart, Beleg). Die letzte Option
+    // fuehrt deshalb direkt dorthin.
+    return '<select class="status-wahl st-' + art + '" data-status-id="' + a.id + '" data-status-kunde="' + a.kunde_id + '" aria-label="Status">' +
       STATUS_LAUFEND.map(function (s) {
         return "<option" + (s === a.status ? " selected" : "") + ">" + s + "</option>";
-      }).join("") + "</select>";
+      }).join("") + '<option value="__abrechnen">Abgeholt → abrechnen …</option></select>';
   }
 
   function statusWahlVerdrahten(container, danach) {
     container.querySelectorAll("select[data-status-id]").forEach(function (sel) {
       sel.addEventListener("change", function () {
+        if (sel.value === "__abrechnen") {
+          kundeOeffnen(Number(sel.dataset.statusKunde), Number(sel.dataset.statusId));
+          return;
+        }
         invoke("auftrag_status_setzen", { auftrag_id: Number(sel.dataset.statusId), status: sel.value })
           .then(danach)
           .catch(function (e) { alert(fehlerText(e)); danach(); });
@@ -3619,6 +3626,52 @@
     });
   });
 
+  // ================= AUTOMATISCHES UPDATE =================
+  // Beim Start still pruefen (update.rs); gibt es eine neue Version,
+  // erscheint unten in der Seitenleiste ein Hinweis. Ohne Internet oder bei
+  // einem Fehler passiert beim stillen Pruefen einfach nichts.
+  function updateAnzeigen(info) {
+    var verfuegbar = info && info.verfuegbar;
+    document.getElementById("updateHinweis").hidden = !verfuegbar;
+    document.getElementById("eiUpdateInstallieren").hidden = !verfuegbar;
+    if (verfuegbar) document.getElementById("updateHinweisText").textContent = "vom " + info.neu_datum;
+    var text = !info ? "Version konnte nicht geprüft werden."
+      : info.entwicklung ? "Entwicklungsversion (sucht nicht nach Updates)."
+      : "Installiert: Version vom " + (info.installiert_datum || "?") + ". " +
+        (verfuegbar ? "Neue Version vom " + info.neu_datum + " ist bereit." : "Das ist die neueste Version.");
+    document.getElementById("eiVersionText").textContent = text;
+  }
+
+  function updatePruefen(still) {
+    var echo = document.getElementById("eiUpdateEcho");
+    echo.hidden = true;
+    return invoke("update_pruefen")
+      .then(updateAnzeigen)
+      .catch(function (e) {
+        if (still) return;
+        echo.textContent = fehlerText(e);
+        echo.hidden = false;
+      });
+  }
+
+  function updateInstallieren(knopf) {
+    if (!confirm("Jetzt aktualisieren? Das Programm lädt die neue Version herunter, schliesst sich und startet danach neu. Ihre Daten bleiben erhalten.")) return;
+    knopfSperren(knopf, true);
+    knopf.textContent = "Wird heruntergeladen …";
+    invoke("update_installieren").catch(function (e) {
+      knopfSperren(knopf, false);
+      alert(fehlerText(e));
+    });
+  }
+
+  document.getElementById("eiUpdateKnopf").addEventListener("click", function () {
+    var k = this;
+    knopfSperren(k, true);
+    updatePruefen(false).finally(function () { knopfSperren(k, false); });
+  });
+  document.getElementById("eiUpdateInstallieren").addEventListener("click", function () { updateInstallieren(this); });
+  document.getElementById("updateJetztKnopf").addEventListener("click", function () { updateInstallieren(this); });
+
   // ================= START =================
   function programmStarten() {
     suchtextSuchen();
@@ -3627,5 +3680,6 @@
     preislisteVorschlaegeLaden();
     zaehlerAktualisieren();
     reiterOeffnen("r-start");
+    updatePruefen(true);
   }
 })();

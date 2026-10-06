@@ -11,6 +11,7 @@ mod quittung;
 mod sicherung;
 mod stunden;
 mod treuhand;
+mod update;
 
 use std::sync::Mutex;
 use tauri::Manager;
@@ -82,6 +83,8 @@ pub fn run() {
             commands::einnahmen_extern_eines_jahres,
             commands::einnahme_extern_loeschen,
             commands::treuhand_uebersicht,
+            commands::update_pruefen,
+            commands::update_installieren,
             commands::ausgaben_eines_jahres,
             commands::ausgabe_loeschen,
             commands::beleg_oeffnen,
