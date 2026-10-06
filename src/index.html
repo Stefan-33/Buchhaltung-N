@@ -119,10 +119,13 @@
         </span>
       </div>
       <div class="reiter" role="tablist">
-        <button role="tab" id="r-arbeit" aria-selected="true" aria-controls="t-arbeit">Arbeiten</button>
+        <button role="tab" id="r-start" aria-selected="true" aria-controls="t-start">Übersicht</button>
+        <button role="tab" id="r-arbeit" aria-selected="false" aria-controls="t-arbeit">Arbeiten</button>
+        <button role="tab" id="r-auftraege" aria-selected="false" aria-controls="t-auftraege">Aufträge</button>
         <button role="tab" id="r-stunden" aria-selected="false" aria-controls="t-stunden">Stunden</button>
         <button role="tab" id="r-monat" aria-selected="false" aria-controls="t-monat">Monat &amp; Jahr</button>
         <button role="tab" id="r-treuhand" aria-selected="false" aria-controls="t-treuhand">Treuhand</button>
+        <button role="tab" id="r-preisliste" aria-selected="false" aria-controls="t-preisliste">Preisliste</button>
         <button role="tab" id="r-einstellungen" aria-selected="false" aria-controls="t-einstellungen">Einstellungen</button>
       </div>
       <div class="kopf-benutzer">
@@ -134,8 +137,35 @@
 
   <main class="huelle">
 
+    <!-- ============ UEBERSICHT (Startseite) ============ -->
+    <section id="t-start" role="tabpanel" aria-labelledby="r-start">
+      <div class="tafel">
+        <div class="tafel-kopf">
+          <h2 id="startTitel">Guten Tag</h2>
+          <p id="startDatum"></p>
+        </div>
+        <div class="abschnitt">
+          <div class="kacheln" id="startKacheln"></div>
+        </div>
+        <div class="abschnitt">
+          <h3>Heute abholen</h3>
+          <div id="startHeute"></div>
+        </div>
+        <div class="abschnitt">
+          <h3>Überfällig</h3>
+          <div id="startUeberfaellig"></div>
+        </div>
+        <div class="abschnitt">
+          <div class="knopfreihe" style="margin-top:0">
+            <button class="knopf knopf-voll" id="startNeuerAuftrag">+ Neuer Auftrag</button>
+            <button class="knopf" id="startKundeSuchen">Kunde suchen</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ============ ARBEITEN ============ -->
-    <section id="t-arbeit" role="tabpanel" aria-labelledby="r-arbeit">
+    <section id="t-arbeit" role="tabpanel" aria-labelledby="r-arbeit" hidden>
       <div class="arbeit">
 
         <div class="tafel">
@@ -164,6 +194,56 @@
 
         <div class="tafel" id="kundenblatt"></div>
 
+      </div>
+    </section>
+
+    <!-- ============ AUFTRAEGE ============ -->
+    <!-- Annahme eines Auftrags (Kleidungsstueck wird abgegeben). Abgerechnet
+         wird beim Abholen im Kundenblatt (Reiter "Arbeiten") - Auftrag und
+         Rechnung tragen dieselbe Nummer und haengen an der Kunden-Nr. -->
+    <section id="t-auftraege" role="tabpanel" aria-labelledby="r-auftraege" hidden>
+      <div class="tafel">
+        <div class="tafel-kopf">
+          <h2>Neuer Auftrag</h2>
+          <p>Bei der Annahme erfassen – abgerechnet wird beim Abholen im Kundenblatt (Reiter „Arbeiten“)</p>
+        </div>
+        <div class="abschnitt">
+          <label class="feld" style="margin-top:0"><span>Kunden-Nr. oder Name</span>
+            <input id="au-kunde" autocomplete="off" placeholder="z. B. 142 oder Meier"></label>
+          <div id="au-kunde-treffer" class="knopfreihe" style="margin-top:8px"></div>
+          <div id="au-kunde-gewaehlt" class="import-zusammenfassung" hidden></div>
+          <div id="au-posten" style="margin-top:14px"></div>
+          <label class="feld" style="max-width:220px"><span>Abholdatum (optional)</span>
+            <input id="au-abholdatum" type="date"></label>
+          <p id="au-fehler" class="login-fehler" hidden></p>
+          <p id="au-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="au-speichern">Auftrag speichern</button>
+            <button class="knopf" id="au-neue-kundin">+ Neue Kundin</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2>Aufträge</h2>
+          <p>Status direkt in der Liste ändern – „Abrechnen“ öffnet das Kundenblatt</p>
+        </div>
+        <div class="abschnitt">
+          <div class="zahlwahl" id="auFilter" style="margin-top:0">
+            <button type="button" data-filter="laufend" aria-pressed="true">Laufend</button>
+            <button type="button" data-filter="abholbereit" aria-pressed="false">Abholbereit</button>
+            <button type="button" data-filter="unbezahlt" aria-pressed="false">Offen (älteste zuerst)</button>
+            <button type="button" data-filter="alle" aria-pressed="false">Alle</button>
+          </div>
+          <div id="auZusammenfassung" class="import-zusammenfassung" hidden></div>
+          <div class="tabellenrahmen" style="margin-top:12px">
+            <table class="auflistung auftragsliste">
+              <thead><tr><th>Nr.</th><th>Kundin</th><th>Arbeit</th><th>Datum</th><th>Abholen</th><th>Status</th><th class="re">CHF</th><th></th></tr></thead>
+              <tbody id="auListe"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -354,6 +434,33 @@
           <div class="knopfreihe">
             <button class="knopf knopf-voll" id="th-lohn-exportieren">Lohnabrechnung exportieren</button>
             <span id="thLohnEcho" style="font-size:13px;color:var(--gruen);font-weight:600;"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PREISLISTE ============ -->
+    <section id="t-preisliste" role="tabpanel" aria-labelledby="r-preisliste" hidden>
+      <div class="tafel">
+        <div class="tafel-kopf">
+          <h2>Preisliste</h2>
+          <p>Standardarbeiten mit Preis – werden beim Erfassen eines Auftrags vorgeschlagen, der Preis bleibt dort änderbar</p>
+        </div>
+        <div class="abschnitt">
+          <div class="knopfreihe" style="margin-top:0">
+            <button class="knopf knopf-voll" id="plImportKnopf">Preisliste importieren (Excel/CSV)…</button>
+            <button class="knopf" id="plNeuKnopf">+ Eintrag</button>
+          </div>
+          <div class="filterzeile" style="margin-top:12px">
+            <input id="plSuche" type="search" placeholder="Suchen…" autocomplete="off" style="padding:7px 10px;border:1px solid var(--linie-stark);border-radius:8px;background:var(--grund);font-size:14px">
+            <label class="schalter"><input type="checkbox" id="plInaktive"> Deaktivierte mitzeigen</label>
+            <span class="treffer" id="plTreffer"></span>
+          </div>
+          <div class="tabellenrahmen" style="margin-top:10px">
+            <table class="auflistung">
+              <thead><tr><th>Kategorie</th><th>Arbeit</th><th class="re">CHF</th><th></th></tr></thead>
+              <tbody id="plListe"></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -602,6 +709,53 @@
     </div>
   </div>
 </dialog>
+
+<!-- ============ PREISLISTE: EINTRAG (Dialog) ============ -->
+<dialog id="preisDialog" class="dialog">
+  <div class="dialog-karte">
+    <h2 id="pd-titel">Neuer Eintrag</h2>
+    <label class="feld"><span>Arbeit</span><input id="pd-bezeichnung" placeholder="z. B. Hose kürzen"></label>
+    <label class="feld"><span>Kategorie (optional)</span><input id="pd-kategorie" placeholder="z. B. Hosen" list="plKategorien"></label>
+    <label class="feld"><span>Preis (CHF)</span><input id="pd-preis" type="number" min="0" step="0.05"></label>
+    <p id="pd-fehler" class="login-fehler" hidden></p>
+    <div class="knopfreihe" style="justify-content:flex-end">
+      <button type="button" class="knopf" id="pd-abbrechen">Abbrechen</button>
+      <button type="button" class="knopf knopf-voll" id="pd-speichern">Speichern</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============ PREISLISTE IMPORTIEREN (Dialog) ============ -->
+<dialog id="preislisteImportDialog" class="dialog">
+  <div class="dialog-karte dialog-karte-breit">
+    <h2>Preisliste importieren</h2>
+    <p class="login-hinweis" style="margin-top:0">
+      Excel-/CSV-Datei auswählen oder die Tabelle aus Excel kopieren (Strg+C) und hier einfügen
+      (Strg+V) – am liebsten mit Kopfzeile (z. B. Arbeit, Kategorie, Preis). Die Spalten werden
+      automatisch erkannt, Beträge wie 1'234.50, 1234,50 oder 25.– funktionieren. Gibt es eine
+      Arbeit schon, wird nur ihr Preis aktualisiert – so lässt sich die Liste später einfach
+      nochmals importieren.
+    </p>
+    <div class="knopfreihe" style="margin-top:0">
+      <button type="button" class="knopf" id="pli-datei">Excel-/CSV-Datei auswählen…</button>
+    </div>
+    <textarea id="pli-text" class="textarea-eingabe" rows="6" placeholder="Hier einfügen…"></textarea>
+    <label class="schalter" style="margin-top:10px">
+      <input type="checkbox" id="pli-kopfzeile"> Erste Zeile ist Kopfzeile (wird nicht importiert)
+    </label>
+    <div id="pli-vorschau"></div>
+    <p id="pli-fehler" class="login-fehler" hidden></p>
+    <div class="knopfreihe" style="justify-content:flex-end">
+      <button type="button" class="knopf" id="pli-abbrechen">Schliessen</button>
+      <button type="button" class="knopf knopf-voll" id="pli-importieren" disabled>Importieren</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Vorschlaege aus der Preisliste fuer das Feld "Arbeit" beim Erfassen
+     eines Auftrags (Kundenblatt und Reiter Auftraege). -->
+<datalist id="preislisteVorschlaege"></datalist>
+<datalist id="plKategorien"></datalist>
 
 <script src="app.js"></script>
 </body>

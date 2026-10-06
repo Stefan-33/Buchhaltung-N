@@ -144,6 +144,20 @@ fn schema_anlegen(conn: &Connection) -> rusqlite::Result<()> {
             erstellt_am TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_ausgaben_datum ON ausgaben(datum);
+
+        -- Standardarbeiten mit Preis (z.B. "Hose kuerzen"), werden beim
+        -- Erfassen eines Auftrags als Vorschlag angeboten. Bewusst ohne
+        -- feste Verknuepfung zu auftrag_posten: der Preis wird nur
+        -- uebernommen und bleibt im Auftrag frei aenderbar. Eintraege werden
+        -- nie geloescht, nur deaktiviert (aktiv = 0).
+        CREATE TABLE IF NOT EXISTS preisliste (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            bezeichnung TEXT NOT NULL,
+            kategorie   TEXT NOT NULL DEFAULT '',
+            preis       REAL NOT NULL DEFAULT 0,
+            aktiv       INTEGER NOT NULL DEFAULT 1,
+            erstellt_am TEXT NOT NULL DEFAULT (datetime('now'))
+        );
         "#,
     )?;
     migrationen_anwenden(conn)
@@ -178,13 +192,87 @@ fn migrationen_anwenden(conn: &Connection) -> rusqlite::Result<()> {
     // Beleg (Foto/PDF der Quittung) zu einer Ausgabe - siehe Stefans
     // Wunsch, beim Erfassen gleich eine Datei dazu ablegen zu koennen.
     let ausgaben_spalten: &[(&str, &str)] = &[("beleg_pfad", "TEXT")];
+    // Auftrags-Ablauf: Annahme -> Abrechnen beim Abholen, offene Posten.
+    // Die Standardwerte machen alle bereits bestehenden Auftraege zu
+    // "abgeholt und bezahlt" - genau das, was sie bisher waren.
+    let auftraege_spalten: &[(&str, &str)] = &[
+        ("bezahlt", "INTEGER NOT NULL DEFAULT 1"),
+        ("status", "TEXT NOT NULL DEFAULT 'Abgeholt'"),
+        ("abholdatum", "TEXT"),
+        ("angenommen_am", "TEXT"),
+        ("bezahlt_am", "TEXT"),
+    ];
+    let bezahlt_am_neu = spalte_fehlt(conn, "auftraege", "bezahlt_am")?;
 
-    for (tabelle, spalten) in [("benutzer", benutzer_spalten), ("ausgaben", ausgaben_spalten)] {
+    for (tabelle, spalten) in [
+        ("benutzer", benutzer_spalten),
+        ("ausgaben", ausgaben_spalten),
+        ("auftraege", auftraege_spalten),
+    ] {
         for (spalte, definition) in spalten {
             if spalte_fehlt(conn, tabelle, spalte)? {
                 conn.execute(&format!("ALTER TABLE {tabelle} ADD COLUMN {spalte} {definition}"), [])?;
             }
         }
     }
+
+    // Einmalig beim Hinzufuegen der Spalte: bei allen schon bezahlten
+    // Auftraegen gilt das Auftragsdatum als Bezahldatum.
+    if bezahlt_am_neu {
+        conn.execute("UPDATE auftraege SET bezahlt_am = datum WHERE bezahlt = 1 AND bezahlt_am IS NULL", [])?;
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Genau Stefans Fall: eine bestehende Datenbank aus einer frueheren
+    // Version (Auftraege ohne Status/Abholdatum/Bezahldatum) - nach dem
+    // Update muessen alle alten Auftraege als abgeholt und bezahlt gelten,
+    // ohne dass eine Zeile verloren geht.
+    #[test]
+    fn alte_auftraege_werden_bei_der_migration_abgeholt_und_bezahlt() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE kunden (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, nummer INTEGER NOT NULL UNIQUE,
+                name TEXT NOT NULL, vorname TEXT NOT NULL DEFAULT '', telefon TEXT NOT NULL DEFAULT '',
+                ort TEXT NOT NULL DEFAULT '', adresse TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+                kartensatz REAL, archiviert INTEGER NOT NULL DEFAULT 0, notiz TEXT NOT NULL DEFAULT '',
+                erstellt_am TEXT NOT NULL DEFAULT (datetime('now')));
+             CREATE TABLE auftraege (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, kunde_id INTEGER NOT NULL REFERENCES kunden(id),
+                rechnungsnummer INTEGER NOT NULL UNIQUE, datum TEXT NOT NULL DEFAULT (date('now')),
+                zahlart TEXT NOT NULL CHECK(zahlart IN ('Bar','Twint','Karte','Rechnung')),
+                summe REAL NOT NULL, bezahlt INTEGER NOT NULL DEFAULT 1,
+                erstellt_am TEXT NOT NULL DEFAULT (datetime('now')));
+             INSERT INTO kunden (nummer, name) VALUES (101, 'Meier');
+             INSERT INTO auftraege (kunde_id, rechnungsnummer, datum, zahlart, summe) VALUES (1, 1258, '2025-03-14', 'Bar', 42.0);
+             INSERT INTO auftraege (kunde_id, rechnungsnummer, datum, zahlart, summe) VALUES (1, 1259, '2025-04-02', 'Rechnung', 30.0);",
+        )
+        .unwrap();
+
+        schema_anlegen(&conn).unwrap();
+
+        let mut stmt = conn
+            .prepare("SELECT status, bezahlt, bezahlt_am, datum, abholdatum FROM auftraege ORDER BY id")
+            .unwrap();
+        let zeilen: Vec<(String, i64, Option<String>, String, Option<String>)> = stmt
+            .query_map([], |z| Ok((z.get(0)?, z.get(1)?, z.get(2)?, z.get(3)?, z.get(4)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(zeilen.len(), 2, "keine Zeile darf verloren gehen");
+        for (status, bezahlt, bezahlt_am, datum, abholdatum) in zeilen {
+            assert_eq!(status, "Abgeholt");
+            assert_eq!(bezahlt, 1);
+            assert_eq!(bezahlt_am.as_deref(), Some(datum.as_str()));
+            assert_eq!(abholdatum, None);
+        }
+
+        // Ein zweiter Start darf nichts mehr veraendern oder abbrechen.
+        schema_anlegen(&conn).unwrap();
+    }
 }

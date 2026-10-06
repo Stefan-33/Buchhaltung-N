@@ -1,9 +1,11 @@
+mod auftraege;
 mod auth;
 mod commands;
 mod datei;
 mod db;
 mod einstellungen;
 mod geschaeft;
+mod preisliste;
 mod quittung;
 mod sicherung;
 mod stunden;
@@ -83,6 +85,17 @@ pub fn run() {
             commands::quittung_als_pdf_oeffnen,
             commands::quittung_logo_setzen,
             commands::quittung_logo_entfernen,
+            commands::kunde_nach_nummer,
+            commands::auftrag_annehmen,
+            commands::auftrag_abrechnen,
+            commands::auftrag_status_setzen,
+            commands::auftrag_bezahlt_markieren,
+            commands::auftraege_liste,
+            commands::uebersicht,
+            commands::preisliste_lesen,
+            commands::preis_eintrag_speichern,
+            commands::preis_eintrag_aktiv_setzen,
+            commands::preisliste_importieren,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

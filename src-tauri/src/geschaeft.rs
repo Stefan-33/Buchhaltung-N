@@ -17,6 +17,36 @@ pub enum GeschaeftFehler {
     KeinePosten,
     #[error("Dieser Kunde hat bereits Aufträge und kann darum nicht gelöscht werden - ohne neuen Besuch wird er automatisch archiviert")]
     KundeHatAuftraege,
+    #[error("Keine Kundin mit dieser Nummer gefunden")]
+    KundenNummerUnbekannt,
+    #[error("Auftrag wurde nicht gefunden")]
+    AuftragNichtGefunden,
+    #[error("Dieser Auftrag ist bereits abgerechnet")]
+    BereitsAbgerechnet,
+    #[error("Dieser Auftrag ist noch nicht abgerechnet - bitte zuerst im Kundenblatt abrechnen")]
+    NochNichtAbgerechnet,
+    #[error("Unbekannter Status")]
+    UngueltigerStatus,
+    #[error("Unbekannte Zahlart")]
+    UngueltigeZahlart,
+    #[error("Ungültiges Abholdatum")]
+    UngueltigesDatum,
+}
+
+pub const ZAHLARTEN: &[&str] = &["Bar", "Twint", "Karte", "Rechnung"];
+
+/// Ablauf eines Auftrags von der Annahme bis zur Abholung. "Abgeholt"
+/// heisst gleichzeitig: abgerechnet (Beleg erstellt) - erst ab dann
+/// zaehlt der Betrag als Umsatz.
+pub const STATUS_ABGEHOLT: &str = "Abgeholt";
+pub const AUFTRAG_STATUS: &[&str] = &["Angenommen", "In Arbeit", "Abholbereit", STATUS_ABGEHOLT];
+
+fn status_abgeholt() -> String {
+    STATUS_ABGEHOLT.to_string()
+}
+
+fn ja() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -36,6 +66,9 @@ pub struct Kunde {
     pub jahresumsatz: f64,
     pub anzahl_auftraege: i64,
     pub letzter_besuch: Option<String>,
+    // Summe aller noch nicht bezahlten Auftraege dieser Kundin.
+    #[serde(default)]
+    pub offen_summe: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,9 +129,57 @@ pub struct Auftrag {
     pub zahlart: String,
     pub summe: f64,
     pub posten: Vec<Posten>,
+    #[serde(default = "status_abgeholt")]
+    pub status: String,
+    #[serde(default)]
+    pub abholdatum: Option<String>,
+    #[serde(default)]
+    pub angenommen_am: Option<String>,
+    #[serde(default = "ja")]
+    pub bezahlt: bool,
+    #[serde(default)]
+    pub bezahlt_am: Option<String>,
 }
 
-fn naechster_zaehler(conn: &Connection, schluessel: &str, start: i64) -> rusqlite::Result<i64> {
+const AUFTRAG_SPALTEN: &str =
+    "id, rechnungsnummer, datum, zahlart, summe, status, abholdatum, angenommen_am, bezahlt, bezahlt_am";
+
+/// Liest einen Auftrag ohne Posten (Spaltenreihenfolge wie AUFTRAG_SPALTEN).
+fn zeile_zu_auftrag(z: &rusqlite::Row) -> rusqlite::Result<Auftrag> {
+    Ok(Auftrag {
+        id: z.get(0)?,
+        rechnungsnummer: z.get(1)?,
+        datum: z.get(2)?,
+        zahlart: z.get(3)?,
+        summe: z.get(4)?,
+        posten: Vec::new(),
+        status: z.get(5)?,
+        abholdatum: z.get(6)?,
+        angenommen_am: z.get(7)?,
+        bezahlt: z.get::<_, i64>(8)? != 0,
+        bezahlt_am: z.get(9)?,
+    })
+}
+
+pub(crate) fn posten_holen(conn: &Connection, auftrag_id: i64) -> rusqlite::Result<Vec<Posten>> {
+    let mut stmt = conn.prepare("SELECT bezeichnung, stueck, preis FROM auftrag_posten WHERE auftrag_id = ?1 ORDER BY id")?;
+    let posten = stmt
+        .query_map([auftrag_id], |z| Ok(Posten { bezeichnung: z.get(0)?, stueck: z.get(1)?, preis: z.get(2)? }))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(posten)
+}
+
+pub(crate) fn auftrag_holen(conn: &Connection, auftrag_id: i64) -> Result<Auftrag, GeschaeftFehler> {
+    let sql = format!("SELECT {AUFTRAG_SPALTEN} FROM auftraege WHERE id = ?1");
+    let mut auftrag = conn
+        .query_row(&sql, [auftrag_id], zeile_zu_auftrag)
+        .optional()?
+        .ok_or(GeschaeftFehler::AuftragNichtGefunden)?;
+    auftrag.posten = posten_holen(conn, auftrag_id)?;
+    Ok(auftrag)
+}
+
+pub(crate) fn naechster_zaehler(conn: &Connection, schluessel: &str, start: i64) -> rusqlite::Result<i64> {
     // Ein Zaehler in einer eigenen kleinen Tabelle statt MAX(nummer)+1 auf
     // der Kunden-/Auftragstabelle - so bleibt die Nummer stabil, auch wenn
     // irgendwann mal ein Testkunde geloescht wird und eine Luecke entsteht.
@@ -200,10 +281,14 @@ const KUNDE_MIT_KENNZAHLEN_SQL: &str = r#"
         k.email, k.kartensatz, k.archiviert, k.notiz,
         COALESCE((
             SELECT SUM(a.summe) FROM auftraege a
-            WHERE a.kunde_id = k.id AND strftime('%Y', a.datum) = strftime('%Y', 'now')
+            WHERE a.kunde_id = k.id AND a.status = 'Abgeholt'
+              AND strftime('%Y', a.datum) = strftime('%Y', 'now')
         ), 0) AS jahresumsatz,
         (SELECT COUNT(*) FROM auftraege a WHERE a.kunde_id = k.id) AS anzahl_auftraege,
-        (SELECT MAX(a.datum) FROM auftraege a WHERE a.kunde_id = k.id) AS letzter_besuch
+        (SELECT MAX(a.datum) FROM auftraege a WHERE a.kunde_id = k.id) AS letzter_besuch,
+        COALESCE((
+            SELECT SUM(a.summe) FROM auftraege a WHERE a.kunde_id = k.id AND a.bezahlt = 0
+        ), 0) AS offen_summe
     FROM kunden k
 "#;
 
@@ -223,6 +308,7 @@ fn zeile_zu_kunde(z: &rusqlite::Row) -> rusqlite::Result<Kunde> {
         jahresumsatz: z.get(11)?,
         anzahl_auftraege: z.get(12)?,
         letzter_besuch: z.get(13)?,
+        offen_summe: z.get(14)?,
     })
 }
 
@@ -231,6 +317,15 @@ pub fn kunde_holen(conn: &Connection, id: i64) -> Result<Kunde, GeschaeftFehler>
     conn.query_row(&sql, [id], zeile_zu_kunde)
         .optional()?
         .ok_or(GeschaeftFehler::KundeNichtGefunden)
+}
+
+/// Fuer "Neuer Auftrag" im Reiter Auftraege: die Kundin direkt ueber ihre
+/// Kundennummer finden (die Nummer, die auch auf Auftrag und Rechnung steht).
+pub fn kunde_nach_nummer(conn: &Connection, nummer: i64) -> Result<Kunde, GeschaeftFehler> {
+    let sql = format!("{KUNDE_MIT_KENNZAHLEN_SQL} WHERE k.nummer = ?1");
+    conn.query_row(&sql, [nummer], zeile_zu_kunde)
+        .optional()?
+        .ok_or(GeschaeftFehler::KundenNummerUnbekannt)
 }
 
 /// Suche wie in der Skizze: Name, Ort und Telefon gleichzeitig, ein
@@ -312,56 +407,59 @@ pub fn archiv_aktualisieren(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+pub(crate) fn zahlart_pruefen(zahlart: &str) -> Result<(), GeschaeftFehler> {
+    if ZAHLARTEN.contains(&zahlart) {
+        Ok(())
+    } else {
+        Err(GeschaeftFehler::UngueltigeZahlart)
+    }
+}
+
+pub(crate) fn posten_einfuegen(conn: &Connection, auftrag_id: i64, posten: &[Posten]) -> rusqlite::Result<()> {
+    for p in posten {
+        conn.execute(
+            "INSERT INTO auftrag_posten (auftrag_id, bezeichnung, stueck, preis) VALUES (?1, ?2, ?3, ?4)",
+            params![auftrag_id, p.bezeichnung.trim(), p.stueck, p.preis],
+        )?;
+    }
+    Ok(())
+}
+
+/// Sofort-Ablauf im Kundenblatt: Auftrag erfassen und gleich abrechnen
+/// (Kundin zahlt sofort bzw. bekommt eine Rechnung). Mit Zahlart
+/// "Rechnung" bleibt er als offener Posten stehen, bis er als bezahlt
+/// markiert wird.
 pub fn auftrag_anlegen(conn: &mut Connection, eingabe: NeuerAuftrag) -> Result<Auftrag, GeschaeftFehler> {
     if eingabe.posten.is_empty() {
         return Err(GeschaeftFehler::KeinePosten);
     }
+    zahlart_pruefen(&eingabe.zahlart)?;
     let summe: f64 = eingabe.posten.iter().map(|p| p.stueck * p.preis).sum();
     let rechnungsnummer = naechster_zaehler(conn, "naechste_rechnungsnummer", 1259)?;
+    let bezahlt = eingabe.zahlart != "Rechnung";
 
     let tx = conn.transaction()?;
     tx.execute(
-        "INSERT INTO auftraege (kunde_id, rechnungsnummer, zahlart, summe) VALUES (?1, ?2, ?3, ?4)",
-        params![eingabe.kunde_id, rechnungsnummer, eingabe.zahlart, summe],
+        "INSERT INTO auftraege (kunde_id, rechnungsnummer, zahlart, summe, status, bezahlt, bezahlt_am)
+         VALUES (?1, ?2, ?3, ?4, 'Abgeholt', ?5, CASE WHEN ?5 = 1 THEN date('now') END)",
+        params![eingabe.kunde_id, rechnungsnummer, eingabe.zahlart, summe, bezahlt as i64],
     )?;
     let auftrag_id = tx.last_insert_rowid();
-    for posten in &eingabe.posten {
-        tx.execute(
-            "INSERT INTO auftrag_posten (auftrag_id, bezeichnung, stueck, preis) VALUES (?1, ?2, ?3, ?4)",
-            params![auftrag_id, posten.bezeichnung, posten.stueck, posten.preis],
-        )?;
-    }
+    posten_einfuegen(&tx, auftrag_id, &eingabe.posten)?;
     tx.commit()?;
     archiv_aktualisieren(conn)?;
 
-    let datum: String = conn.query_row("SELECT datum FROM auftraege WHERE id = ?1", [auftrag_id], |z| z.get(0))?;
-    Ok(Auftrag { id: auftrag_id, rechnungsnummer, datum, zahlart: eingabe.zahlart, summe, posten: eingabe.posten })
+    auftrag_holen(conn, auftrag_id)
 }
 
 pub fn auftraege_von_kunde(conn: &Connection, kunde_id: i64) -> Result<Vec<Auftrag>, GeschaeftFehler> {
-    let mut stmt = conn.prepare(
-        "SELECT id, rechnungsnummer, datum, zahlart, summe FROM auftraege
-         WHERE kunde_id = ?1 ORDER BY datum DESC, id DESC",
-    )?;
-    let auftraege = stmt
-        .query_map([kunde_id], |z| {
-            Ok(Auftrag {
-                id: z.get(0)?,
-                rechnungsnummer: z.get(1)?,
-                datum: z.get(2)?,
-                zahlart: z.get(3)?,
-                summe: z.get(4)?,
-                posten: Vec::new(),
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+    let sql = format!("SELECT {AUFTRAG_SPALTEN} FROM auftraege WHERE kunde_id = ?1 ORDER BY datum DESC, id DESC");
+    let mut stmt = conn.prepare(&sql)?;
+    let auftraege = stmt.query_map([kunde_id], zeile_zu_auftrag)?.collect::<Result<Vec<_>, _>>()?;
 
     let mut ergebnis = Vec::with_capacity(auftraege.len());
     for mut auftrag in auftraege {
-        let mut stmt = conn.prepare("SELECT bezeichnung, stueck, preis FROM auftrag_posten WHERE auftrag_id = ?1")?;
-        auftrag.posten = stmt
-            .query_map([auftrag.id], |z| Ok(Posten { bezeichnung: z.get(0)?, stueck: z.get(1)?, preis: z.get(2)? }))?
-            .collect::<Result<Vec<_>, _>>()?;
+        auftrag.posten = posten_holen(conn, auftrag.id)?;
         ergebnis.push(auftrag);
     }
     Ok(ergebnis)
@@ -389,7 +487,7 @@ pub fn monatsstatistik(conn: &Connection, jahr: i32) -> Result<Vec<MonatsZeile>,
             COALESCE(SUM(CASE WHEN zahlart = 'Rechnung' THEN summe END), 0),
             COUNT(DISTINCT kunde_id)
          FROM auftraege
-         WHERE strftime('%Y', datum) = ?1
+         WHERE strftime('%Y', datum) = ?1 AND status = 'Abgeholt'
          GROUP BY monat
          ORDER BY monat",
     )?;

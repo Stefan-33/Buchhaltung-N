@@ -118,7 +118,7 @@
     document.getElementById("eiLohnTafel").hidden = istMitarbeiterin;
     if (istMitarbeiterin) {
       // Falls von einem frueheren Login noch der Monat-Reiter aktiv war.
-      document.getElementById("r-arbeit").click();
+      document.getElementById("r-start").click();
     }
   }
 
@@ -351,9 +351,11 @@
   // im Vorname-Feld zu korrigieren).
   var elDialog = document.getElementById("neuerKundeDialog");
   var nkBearbeitenId = null;
+  var nkNachSpeichern = null; // z.B. Reiter Auftraege: neue Kundin direkt uebernehmen
 
   document.getElementById("neuerKundeKnopf").addEventListener("click", function () {
     nkBearbeitenId = null;
+    nkNachSpeichern = null;
     document.getElementById("neuerKundeFormular").reset();
     document.getElementById("nk-titel").textContent = "Neuer Kunde";
     document.getElementById("nk-speichern").textContent = "Anlegen";
@@ -363,6 +365,7 @@
 
   function kundeBearbeitenOeffnen(k) {
     nkBearbeitenId = k.id;
+    nkNachSpeichern = null;
     document.getElementById("nk-titel").textContent = "Kunde bearbeiten";
     document.getElementById("nk-speichern").textContent = "Speichern";
     document.getElementById("nk-name").value = k.name;
@@ -375,7 +378,7 @@
     document.getElementById("nk-name").focus();
   }
 
-  document.getElementById("nk-abbrechen").addEventListener("click", function () { elDialog.close(); });
+  document.getElementById("nk-abbrechen").addEventListener("click", function () { nkNachSpeichern = null; elDialog.close(); });
 
   document.getElementById("neuerKundeFormular").addEventListener("submit", function (ev) {
     ev.preventDefault();
@@ -396,6 +399,7 @@
     aufruf
       .then(function (kunde) {
         elDialog.close();
+        if (nkNachSpeichern) { var rueckruf = nkNachSpeichern; nkNachSpeichern = null; rueckruf(kunde); }
         gewaehlteId = kunde.id;
         elSuche.value = "";
         suchtextSuchen();
@@ -711,26 +715,167 @@
       .finally(function () { knopfSperren(elKiImportierenKnopf, false); });
   });
 
+  // ================= POSTEN-ERFASSUNG (gemeinsam) =================
+  // Dieselbe Eingabe fuer "Arbeiten" (Stueck, Bezeichnung, Preis) im
+  // Kundenblatt und im Reiter "Auftraege". Das Feld "Arbeit" schlaegt die
+  // aktiven Eintraege der Preisliste vor - wird einer ausgewaehlt, kommt
+  // sein Preis automatisch mit (danach frei aenderbar).
+  var preislisteAktiv = [];
+
+  function preislisteVorschlaegeLaden() {
+    return invoke("preisliste_lesen", { inaktive_zeigen: false })
+      .then(function (liste) {
+        preislisteAktiv = liste;
+        document.getElementById("preislisteVorschlaege").innerHTML = liste
+          .map(function (e) {
+            return '<option value="' + escapeHtml(e.bezeichnung) + '">' +
+              escapeHtml((e.kategorie ? e.kategorie + " · " : "") + "CHF " + chf(e.preis)) + "</option>";
+          })
+          .join("");
+      })
+      .catch(function () {});
+  }
+
+  function preisAusListe(bezeichnung) {
+    var gesucht = String(bezeichnung || "").trim().toLowerCase();
+    if (!gesucht) return null;
+    for (var i = 0; i < preislisteAktiv.length; i++) {
+      if (preislisteAktiv[i].bezeichnung.trim().toLowerCase() === gesucht) return preislisteAktiv[i];
+    }
+    return null;
+  }
+
+  function neuePostenzeile() { return { bezeichnung: "", stueck: 1, preis: 0 }; }
+
+  var POSTEN_KOPF_HTML =
+    '<div class="posten posten-kopf"><span>Stück</span><span>Arbeit</span><span style="text-align:right">à CHF</span>' +
+    '<span style="text-align:right">Total</span><span></span></div>';
+
+  function postenZeilenHtml(liste) {
+    return liste
+      .map(function (p, i) {
+        return (
+          '<div class="posten">' +
+          '<input type="number" min="1" value="' + p.stueck + '" data-i="' + i + '" data-f="stueck" aria-label="Stück">' +
+          '<input type="text" value="' + escapeHtml(p.bezeichnung) + '" data-i="' + i + '" data-f="bezeichnung" aria-label="Arbeit" placeholder="z. B. Hose kürzen" list="preislisteVorschlaege">' +
+          '<input type="number" min="0" step="0.05" value="' + p.preis + '" data-i="' + i + '" data-f="preis" aria-label="Preis">' +
+          '<span class="summe zahl">' + chf(p.stueck * p.preis) + "</span>" +
+          '<button type="button" class="weg" data-weg="' + i + '" aria-label="Zeile entfernen">&times;</button>' +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function postenSummeVon(liste) {
+    return liste.reduce(function (s, p) { return s + p.stueck * p.preis; }, 0);
+  }
+
+  // Eingaben einer gezeichneten Posten-Liste verdrahten. "nachAenderung"
+  // laeuft nach jeder Eingabe (Summen auffrischen), "neuZeichnen" wenn
+  // eine Zeile entfernt wurde.
+  function postenVerdrahten(container, liste, nachAenderung, neuZeichnen) {
+    container.querySelectorAll(".posten input").forEach(function (inp) {
+      inp.addEventListener("input", function (ev) {
+        var i = +inp.dataset.i, f = inp.dataset.f;
+        if (f === "bezeichnung") {
+          liste[i].bezeichnung = inp.value;
+          // Nur bei Auswahl aus der Vorschlagsliste den Preis uebernehmen,
+          // nicht beim normalen Tippen - sonst wuerde ein schon von Hand
+          // eingetragener Preis ueberschrieben.
+          var treffer = !ev.inputType || ev.inputType === "insertReplacementText" ? preisAusListe(inp.value) : null;
+          if (treffer) {
+            liste[i].preis = treffer.preis;
+            var preisFeld = container.querySelector('.posten input[data-i="' + i + '"][data-f="preis"]');
+            if (preisFeld) preisFeld.value = treffer.preis;
+          }
+        } else {
+          liste[i][f] = Math.max(0, parseFloat(inp.value) || 0);
+        }
+        container.querySelectorAll(".posten .summe").forEach(function (s, j) {
+          if (liste[j]) s.textContent = chf(liste[j].stueck * liste[j].preis);
+        });
+        nachAenderung();
+      });
+    });
+    container.querySelectorAll("[data-weg]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        liste.splice(+b.dataset.weg, 1);
+        if (!liste.length) liste.push(neuePostenzeile());
+        neuZeichnen();
+      });
+    });
+  }
+
+  var STATUS_LAUFEND = ["Angenommen", "In Arbeit", "Abholbereit"];
+
+  function statusWahlHtml(a) {
+    return '<select class="status-wahl" data-status-id="' + a.id + '" aria-label="Status">' +
+      STATUS_LAUFEND.map(function (s) {
+        return "<option" + (s === a.status ? " selected" : "") + ">" + s + "</option>";
+      }).join("") + "</select>";
+  }
+
+  function statusWahlVerdrahten(container, danach) {
+    container.querySelectorAll("select[data-status-id]").forEach(function (sel) {
+      sel.addEventListener("change", function () {
+        invoke("auftrag_status_setzen", { auftrag_id: Number(sel.dataset.statusId), status: sel.value })
+          .then(danach)
+          .catch(function (e) { alert(fehlerText(e)); danach(); });
+      });
+    });
+  }
+
+  function istUeberfaellig(a) {
+    return a.status !== "Abgeholt" && a.abholdatum && a.abholdatum < datumHeute();
+  }
+
+  function reiterOeffnen(id) { document.getElementById(id).click(); }
+
+  // Springt ins Kundenblatt (Reiter "Arbeiten") - mit "abrechnenId" direkt
+  // im Abrechnen-Modus fuer diesen laufenden Auftrag.
+  function kundeOeffnen(kundeId, abrechnenId) {
+    reiterOeffnen("r-arbeit");
+    gewaehlteId = kundeId;
+    listeZeichnen(kundenCache);
+    kundeLaden(kundeId, abrechnenId);
+  }
+
   // ================= KUNDENBLATT =================
   var aktuellerKunde = null;
   var aktuelleAuftraege = [];
   var posten = [];
   var zahlart = "Bar";
   var letzteQuittung = null; // gebuchter Auftrag, dessen Beleg gerade angezeigt/gedruckt wird
+  var abrechnenAuftrag = null; // laufender Auftrag, der gerade abgerechnet wird (sonst: neuer Auftrag)
 
-  function neuePostenzeile() { return { bezeichnung: "", stueck: 1, preis: 0 }; }
+  function abrechnenStarten(a) {
+    abrechnenAuftrag = a;
+    posten = a.posten.map(function (p) { return { bezeichnung: p.bezeichnung, stueck: p.stueck, preis: p.preis }; });
+    if (!posten.length) posten = [neuePostenzeile()];
+    zahlart = "Bar";
+    letzteQuittung = null;
+    blattZeichnen();
+    var editor = document.getElementById("auftragEditor");
+    if (editor) editor.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
-  function kundeLaden(id) {
+  function kundeLaden(id, abrechnenId) {
     posten = [neuePostenzeile()];
     zahlart = "Bar";
     letzteQuittung = null;
+    abrechnenAuftrag = null;
     elBlatt.innerHTML = '<p class="leer" style="padding:40px">Lade…</p>';
 
     Promise.all([invoke("kunde_holen", { id: id }), invoke("auftraege_von_kunde", { kunde_id: id })])
       .then(function (ergebnisse) {
         aktuellerKunde = ergebnisse[0];
         aktuelleAuftraege = ergebnisse[1];
-        blattZeichnen();
+        var zuAbrechnen = abrechnenId
+          ? aktuelleAuftraege.filter(function (a) { return a.id === abrechnenId && a.status !== "Abgeholt"; })[0]
+          : null;
+        if (zuAbrechnen) abrechnenStarten(zuAbrechnen);
+        else blattZeichnen();
       })
       .catch(function (e) { elBlatt.innerHTML = '<p class="leer">' + fehlerText(e) + "</p>"; });
   }
@@ -764,11 +909,13 @@
       "<div><strong>" + escapeHtml(aktuelleEinstellungen.geschaeft_name) + "</strong>" +
       "<p>" + escapeHtml(aktuelleEinstellungen.geschaeft_zeile2) + "<br>" + escapeHtml(aktuelleEinstellungen.geschaeft_adresse) +
       "<br>" + escapeHtml(aktuelleEinstellungen.geschaeft_telefon) + " · " + escapeHtml(aktuelleEinstellungen.geschaeft_web) + "</p></div>" +
-      '<div style="text-align:right"><strong>Quittung ' + auftrag.rechnungsnummer + "</strong>" +
+      '<div style="text-align:right"><strong>' + (auftrag.bezahlt ? "Quittung " : "Rechnung ") + auftrag.rechnungsnummer + "</strong>" +
       "<p>" + datumKurz(auftrag.datum) + "<br>" + escapeHtml(kunde.vorname) + " " + escapeHtml(kunde.name) + "<br>" + escapeHtml(kunde.ort) + "</p></div>" +
       "</div>" +
       "<table><tbody>" + zeilen + "</tbody>" +
-      '<tfoot><tr><td colspan="3">Total · bezahlt ' + auftrag.zahlart + '</td><td class="re">CHF ' + chf(auftrag.summe) + "</td></tr></tfoot></table>" +
+      '<tfoot><tr><td colspan="3">' +
+      (auftrag.bezahlt ? "Total · bezahlt " + escapeHtml(auftrag.zahlart) : "Total · zahlbar per Rechnung") +
+      '</td><td class="re">CHF ' + chf(auftrag.summe) + "</td></tr></tfoot></table>" +
       '<p class="kleingedruckt">' + escapeHtml(aktuelleEinstellungen.quittung_hinweis1) + "</p>" +
       '<p class="kleingedruckt">' + escapeHtml(aktuelleEinstellungen.quittung_hinweis2) + "</p>" +
       "</div>"
@@ -779,32 +926,48 @@
     var k = aktuellerKunde;
     var summe = postenSumme();
 
-    var verlaufZeilen = aktuelleAuftraege
+    function arbeitText(a) {
+      var erste = a.posten && a.posten[0] ? a.posten[0].bezeichnung : "";
+      var mehr = a.posten && a.posten.length > 1 ? " +" + (a.posten.length - 1) : "";
+      return escapeHtml(erste) + escapeHtml(mehr);
+    }
+
+    var laufende = aktuelleAuftraege.filter(function (a) { return a.status !== "Abgeholt"; });
+    var laufendZeilen = laufende
       .map(function (a) {
-        var erste = a.posten && a.posten[0] ? a.posten[0].bezeichnung : "";
-        var mehr = a.posten && a.posten.length > 1 ? " +" + (a.posten.length - 1) : "";
+        var abholen = a.abholdatum
+          ? '<span class="' + (istUeberfaellig(a) ? "ueberfaellig" : "") + '">abholen ' + datumKurz(a.abholdatum) + "</span>"
+          : "kein Abholdatum";
+        var inArbeit = abrechnenAuftrag && abrechnenAuftrag.id === a.id;
+        return (
+          "<tr><td>" + arbeitText(a) + '<br><span style="font-size:12px;color:var(--tinte-3)">Nr. ' + a.rechnungsnummer +
+          " · angenommen " + datumKurz(a.angenommen_am || a.datum) + " · " + abholen + "</span></td>" +
+          '<td class="re">' + statusWahlHtml(a) + "</td>" +
+          '<td class="re">' + chf(a.summe) + "</td>" +
+          '<td class="re">' + (inArbeit
+            ? '<span style="font-size:12px;color:var(--tinte-2)">wird abgerechnet</span>'
+            : '<button type="button" class="knopf knopf-voll knopf-klein" data-abrechnen="' + a.id + '">Abrechnen</button>') +
+          "</td></tr>"
+        );
+      })
+      .join("");
+
+    var verlaufZeilen = aktuelleAuftraege
+      .filter(function (a) { return a.status === "Abgeholt"; })
+      .map(function (a) {
+        var offen = !a.bezahlt
+          ? ' <span class="zahlart za-offen">offen</span> <button type="button" class="knopf knopf-klein" data-bezahlt="' + a.id + '">bezahlt ✓</button>'
+          : "";
         return (
           '<tr><td class="zahl" style="white-space:nowrap;color:var(--tinte-2)">' + datumKurz(a.datum) + "</td>" +
-          "<td>" + escapeHtml(erste) + escapeHtml(mehr) + '<br><span style="font-size:12px;color:var(--tinte-3)">Nr. ' + a.rechnungsnummer + "</span></td>" +
-          '<td class="re"><span class="zahlart' + (a.zahlart === "Rechnung" ? " za-offen" : "") + '">' + a.zahlart + "</span></td>" +
+          "<td>" + arbeitText(a) + '<br><span style="font-size:12px;color:var(--tinte-3)">Nr. ' + a.rechnungsnummer + "</span></td>" +
+          '<td class="re"><span class="zahlart' + (a.zahlart === "Rechnung" ? " za-offen" : "") + '">' + escapeHtml(a.zahlart) + "</span>" + offen + "</td>" +
           '<td class="re">' + chf(a.summe) + "</td></tr>"
         );
       })
       .join("");
 
-    var postenZeilen = posten
-      .map(function (p, i) {
-        return (
-          '<div class="posten">' +
-          '<input type="number" min="1" value="' + p.stueck + '" data-i="' + i + '" data-f="stueck" aria-label="Stück">' +
-          '<input type="text" value="' + escapeHtml(p.bezeichnung) + '" data-i="' + i + '" data-f="bezeichnung" aria-label="Arbeit" placeholder="z. B. Hose kürzen">' +
-          '<input type="number" min="0" step="0.05" value="' + p.preis + '" data-i="' + i + '" data-f="preis" aria-label="Preis">' +
-          '<span class="summe zahl">' + chf(p.stueck * p.preis) + "</span>" +
-          '<button type="button" class="weg" data-weg="' + i + '" aria-label="Zeile entfernen">&times;</button>' +
-          "</div>"
-        );
-      })
-      .join("");
+    var postenZeilen = postenZeilenHtml(posten);
 
     var karteKey = k.kartensatz === null || k.kartensatz === undefined ? "" : String(k.kartensatz);
     var ZAHLARTEN = ["Bar", "Twint", "Karte", "Rechnung"];
@@ -841,10 +1004,23 @@
       '<div class="kennzahlen">' +
       '<div class="kennzahl"><b class="zahl">' + chf(k.jahresumsatz) + "</b><span>dieses Jahr</span></div>" +
       '<div class="kennzahl"><b class="zahl">' + k.anzahl_auftraege + "</b><span>Aufträge</span></div>" +
+      (k.offen_summe > 0
+        ? '<div class="kennzahl"><b class="zahl" style="color:var(--faden)">' + chf(k.offen_summe) + "</b><span>noch offen</span></div>"
+        : "") +
       "</div>" +
       "</div>" +
-      '<div class="abschnitt"><h3>Neuer Auftrag</h3>' +
-      '<div class="posten posten-kopf"><span>Stück</span><span>Arbeit</span><span style="text-align:right">à CHF</span><span style="text-align:right">Total</span><span></span></div>' +
+      (laufendZeilen
+        ? '<div class="abschnitt"><h3>Laufende Aufträge</h3>' +
+          '<table class="verlauf"><thead><tr><th>Arbeit</th><th class="re">Status</th><th class="re">CHF</th><th></th></tr></thead>' +
+          "<tbody>" + laufendZeilen + "</tbody></table></div>"
+        : "") +
+      '<div class="abschnitt" id="auftragEditor"><h3>' +
+      (abrechnenAuftrag ? "Auftrag Nr. " + abrechnenAuftrag.rechnungsnummer + " abrechnen" : "Neuer Auftrag") + "</h3>" +
+      (abrechnenAuftrag
+        ? '<p style="margin:-4px 0 10px;font-size:13px;color:var(--tinte-2)">Arbeiten und Preise bei Bedarf anpassen, Zahlart wählen. ' +
+          '<button type="button" class="knopf knopf-klein" id="abrechnenAbbrechen">Abbrechen</button></p>'
+        : "") +
+      POSTEN_KOPF_HTML +
       postenZeilen +
       '<div class="knopfreihe"><button type="button" class="knopf" id="zeilePlus">+ Zeile</button></div>' +
       '<div class="knopfreihe" style="margin-top:15px"><span style="font-size:13px;color:var(--tinte-2);font-weight:600">Bezahlt mit</span></div>' +
@@ -854,7 +1030,8 @@
       (zahlart === "Karte" ? kartehinweisHtml(k) : "") +
       '<div class="endsumme"><span>Total</span><b class="zahl">CHF ' + chf(summe) + "</b></div>" +
       '<div class="knopfreihe">' +
-      '<button type="button" class="knopf knopf-voll" id="abschliessenKnopf"' + (summe <= 0 ? " disabled" : "") + ">Auftrag abschliessen &amp; Beleg</button>" +
+      '<button type="button" class="knopf knopf-voll" id="abschliessenKnopf"' + (summe <= 0 ? " disabled" : "") + ">" +
+      (abrechnenAuftrag ? "Abrechnen &amp; Beleg" : "Auftrag abschliessen &amp; Beleg") + "</button>" +
       '<span id="fertigFehler" class="fehler"></span>' +
       "</div>" +
       (letzteQuittung
@@ -892,26 +1069,62 @@
       });
     }
 
-    elBlatt.querySelectorAll(".posten input").forEach(function (inp) {
-      inp.addEventListener("input", function () {
-        var i = +inp.dataset.i, f = inp.dataset.f;
-        posten[i][f] = f === "bezeichnung" ? inp.value : Math.max(0, parseFloat(inp.value) || 0);
-        elBlatt.querySelectorAll(".posten .summe").forEach(function (s, j) {
-          if (posten[j]) s.textContent = chf(posten[j].stueck * posten[j].preis);
-        });
+    postenVerdrahten(
+      elBlatt,
+      posten,
+      function () {
         var e = elBlatt.querySelector(".endsumme b");
         if (e) e.textContent = "CHF " + chf(postenSumme());
         var knopf = document.getElementById("abschliessenKnopf");
         if (knopf) knopf.disabled = postenSumme() <= 0;
+      },
+      blattZeichnen
+    );
+
+    function kundeNeuLaden() {
+      return Promise.all([invoke("kunde_holen", { id: aktuellerKunde.id }), invoke("auftraege_von_kunde", { kunde_id: aktuellerKunde.id })])
+        .then(function (ergebnisse) {
+          aktuellerKunde = ergebnisse[0];
+          aktuelleAuftraege = ergebnisse[1];
+          blattZeichnen();
+          suchtextSuchen();
+        });
+    }
+
+    elBlatt.querySelectorAll("[data-abrechnen]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var id = Number(b.dataset.abrechnen);
+        var a = aktuelleAuftraege.filter(function (x) { return x.id === id; })[0];
+        if (a) abrechnenStarten(a);
       });
     });
-    elBlatt.querySelectorAll("[data-weg]").forEach(function (b) {
+    var abrechnenAbbrechen = elBlatt.querySelector("#abrechnenAbbrechen");
+    if (abrechnenAbbrechen) {
+      abrechnenAbbrechen.addEventListener("click", function () {
+        abrechnenAuftrag = null;
+        posten = [neuePostenzeile()];
+        blattZeichnen();
+      });
+    }
+    elBlatt.querySelectorAll("[data-bezahlt]").forEach(function (b) {
       b.addEventListener("click", function () {
-        posten.splice(+b.dataset.weg, 1);
-        if (!posten.length) posten.push(neuePostenzeile());
+        knopfSperren(b, true);
+        invoke("auftrag_bezahlt_markieren", { auftrag_id: Number(b.dataset.bezahlt) })
+          .then(kundeNeuLaden)
+          .catch(function (e) { alert(fehlerText(e)); knopfSperren(b, false); });
+      });
+    });
+    statusWahlVerdrahten(elBlatt, function () {
+      invoke("auftraege_von_kunde", { kunde_id: aktuellerKunde.id }).then(function (liste) {
+        aktuelleAuftraege = liste;
+        // Abrechnen-Modus und bereits eingetippte Posten bleiben erhalten
+        if (abrechnenAuftrag) {
+          abrechnenAuftrag = liste.filter(function (x) { return x.id === abrechnenAuftrag.id; })[0] || abrechnenAuftrag;
+        }
         blattZeichnen();
       });
     });
+
     var plus = elBlatt.querySelector("#zeilePlus");
     if (plus) plus.addEventListener("click", function () { posten.push(neuePostenzeile()); blattZeichnen(); });
 
@@ -936,9 +1149,13 @@
         if (!gueltig.length) { fehlerEl.textContent = "Mindestens eine Position mit Bezeichnung nötig."; return; }
 
         abschliessen.disabled = true;
-        invoke("auftrag_anlegen", { eingabe: { kunde_id: aktuellerKunde.id, zahlart: zahlart, posten: gueltig } })
+        var aufruf = abrechnenAuftrag
+          ? invoke("auftrag_abrechnen", { auftrag_id: abrechnenAuftrag.id, zahlart: zahlart, posten: gueltig })
+          : invoke("auftrag_anlegen", { eingabe: { kunde_id: aktuellerKunde.id, zahlart: zahlart, posten: gueltig } });
+        aufruf
           .then(function (auftrag) {
             letzteQuittung = auftrag;
+            abrechnenAuftrag = null;
             posten = [neuePostenzeile()];
             // Kunde + Verlauf neu laden, damit Jahresumsatz/Auftragszahl sofort stimmen.
             return Promise.all([invoke("kunde_holen", { id: aktuellerKunde.id }), invoke("auftraege_von_kunde", { kunde_id: aktuellerKunde.id })]);
@@ -1757,7 +1974,8 @@
   // Versteht sowohl "1234.50" als auch Schweizer/Excel-Schreibweisen wie
   // "1'234.50" oder "1234,50" (Komma als Dezimaltrennzeichen).
   function thiBetragNormalisieren(s) {
-    s = String(s || "").trim().replace(/[^0-9.,\-]/g, "");
+    // "Fr. 25.00" / "25.-" / "25.–": Waehrungszeichen und Strich am Ende weg
+    s = String(s || "").trim().replace(/[^0-9.,\-]/g, "").replace(/^[.,]+/, "").replace(/[.,]?-+$/, "");
     if (!s) return NaN;
     var hatKomma = s.indexOf(",") !== -1, hatPunkt = s.indexOf(".") !== -1;
     if (hatKomma && hatPunkt) {
@@ -2101,6 +2319,451 @@
       .catch(function (e) { echo.textContent = fehlerText(e); echo.style.color = "var(--faden)"; });
   });
 
+  // ================= UEBERSICHT (Startseite) =================
+  var MONATSNAMEN_LANG = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+  var WOCHENTAGE = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
+
+  function kurzlisteHtml(zeilen, leerText) {
+    if (!zeilen.length) return '<p style="margin:0;font-size:14px;color:var(--tinte-2)">' + leerText + "</p>";
+    return '<table class="verlauf kurzliste"><tbody>' + zeilen.map(function (z) {
+      return '<tr class="klickzeile" data-kunde="' + z.kunde_id + '">' +
+        '<td style="white-space:nowrap">Nr. ' + z.rechnungsnummer + "</td>" +
+        "<td>" + escapeHtml(z.kunde_name) + ' <span style="color:var(--tinte-3);font-size:12px">Kd. ' + z.kunde_nummer + "</span><br>" +
+        '<span style="font-size:12.5px;color:var(--tinte-2)">' + escapeHtml(z.arbeit) + "</span></td>" +
+        '<td class="re"><span class="' + (istUeberfaellig(z) ? "ueberfaellig" : "") + '">' +
+        (z.abholdatum ? datumKurz(z.abholdatum) : "") + "</span><br>" +
+        '<span class="zahlart' + (z.status === "Abholbereit" ? "" : " za-offen") + '">' + escapeHtml(z.status) + "</span></td>" +
+        '<td class="re">' + chf(z.summe) + "</td></tr>";
+    }).join("") + "</tbody></table>";
+  }
+
+  function uebersichtLaden() {
+    var h = new Date();
+    var stunde = h.getHours();
+    document.getElementById("startTitel").textContent =
+      (stunde < 11 ? "Guten Morgen" : stunde < 17 ? "Guten Tag" : "Guten Abend") +
+      (aktuellerBenutzer ? ", " + aktuellerBenutzer.anzeigename : "");
+    document.getElementById("startDatum").textContent =
+      WOCHENTAGE[h.getDay()] + ", " + h.getDate() + ". " + MONATSNAMEN_LANG[h.getMonth()] + " " + h.getFullYear();
+
+    invoke("uebersicht")
+      .then(function (u) {
+        var istInhaber = !aktuellerBenutzer || aktuellerBenutzer.rolle !== "mitarbeiterin";
+        function kachel(wert, text, filter, klasse) {
+          return '<button type="button" class="kachel kachel-knopf ' + (klasse || "") + '" data-filter="' + filter + '">' +
+            "<b>" + wert + "</b><span>" + text + "</span></button>";
+        }
+        document.getElementById("startKacheln").innerHTML =
+          kachel(u.heute.length, "heute abholen", "laufend", u.heute.length ? "kachel-gut" : "") +
+          kachel(u.ueberfaellig.length, "überfällig", "laufend", u.ueberfaellig.length ? "kachel-warn" : "") +
+          kachel(u.abholbereit_anzahl, "abholbereit", "abholbereit") +
+          kachel(u.laufend_anzahl, "laufende Aufträge", "laufend") +
+          kachel(u.unbezahlt_anzahl + " · " + chf(u.unbezahlt_summe), "offene Posten (CHF)", "unbezahlt", u.unbezahlt_anzahl ? "kachel-warn" : "") +
+          (istInhaber ? kachel(chf(u.umsatz_monat), "Umsatz " + MONATSNAMEN_LANG[h.getMonth()], "alle") : "");
+        document.getElementById("startHeute").innerHTML = kurzlisteHtml(u.heute, "Heute ist nichts zum Abholen eingetragen.");
+        document.getElementById("startUeberfaellig").innerHTML = kurzlisteHtml(u.ueberfaellig, "Nichts überfällig.");
+
+        document.querySelectorAll("#startKacheln [data-filter]").forEach(function (b) {
+          b.addEventListener("click", function () { auFilter = b.dataset.filter; reiterOeffnen("r-auftraege"); });
+        });
+        document.querySelectorAll("#t-start .klickzeile").forEach(function (tr) {
+          tr.addEventListener("click", function () { kundeOeffnen(Number(tr.dataset.kunde)); });
+        });
+      })
+      .catch(function (e) {
+        document.getElementById("startKacheln").innerHTML = '<p class="fehler">' + fehlerText(e) + "</p>";
+      });
+  }
+
+  document.getElementById("startNeuerAuftrag").addEventListener("click", function () {
+    reiterOeffnen("r-auftraege");
+    document.getElementById("au-kunde").focus();
+  });
+  document.getElementById("startKundeSuchen").addEventListener("click", function () {
+    reiterOeffnen("r-arbeit");
+    elSuche.focus();
+  });
+
+  // ================= AUFTRAEGE =================
+  // Annahme: Kundin ueber Kunden-Nr. (oder Name) waehlen, Arbeiten und
+  // Abholdatum erfassen. Abgerechnet wird beim Abholen im Kundenblatt.
+  var auFilter = "laufend";
+  var auKunde = null;
+  var auPosten = [neuePostenzeile()];
+  var elAuKunde = document.getElementById("au-kunde");
+  var elAuTreffer = document.getElementById("au-kunde-treffer");
+  var elAuGewaehlt = document.getElementById("au-kunde-gewaehlt");
+  var elAuPosten = document.getElementById("au-posten");
+  var elAuFehler = document.getElementById("au-fehler");
+  var elAuErfolg = document.getElementById("au-erfolg");
+
+  function auKundeSetzen(k) {
+    auKunde = k;
+    elAuTreffer.innerHTML = "";
+    if (!k) { elAuGewaehlt.hidden = true; return; }
+    elAuKunde.value = String(k.nummer);
+    elAuGewaehlt.hidden = false;
+    elAuGewaehlt.innerHTML = "<strong>Nr. " + k.nummer + " · " + escapeHtml(k.vorname + " " + k.name) + "</strong>" +
+      (k.ort ? " · " + escapeHtml(k.ort) : "") + (k.telefon ? " · " + escapeHtml(k.telefon) : "") +
+      (k.offen_summe > 0 ? ' · <span style="color:var(--faden)">offen CHF ' + chf(k.offen_summe) + "</span>" : "");
+  }
+
+  var auKundeSuchen = debounce(function () {
+    var text = elAuKunde.value.trim();
+    auKunde = null;
+    elAuGewaehlt.hidden = true;
+    elAuTreffer.innerHTML = "";
+    if (!text) return;
+    if (/^\d+$/.test(text)) {
+      invoke("kunde_nach_nummer", { nummer: Number(text) })
+        .then(auKundeSetzen)
+        .catch(function (e) { elAuTreffer.innerHTML = '<span class="fehler">' + fehlerText(e) + "</span>"; });
+      return;
+    }
+    invoke("kunden_suchen", { suchtext: text, archiv_zeigen: true }).then(function (kunden) {
+      if (!kunden.length) { elAuTreffer.innerHTML = '<span class="fehler">Niemand gefunden.</span>'; return; }
+      var auswahl = kunden.slice(0, 6);
+      elAuTreffer.innerHTML = auswahl.map(function (k, i) {
+        return '<button type="button" class="knopf knopf-klein" data-treffer="' + i + '">Nr. ' + k.nummer + " · " +
+          escapeHtml(k.vorname + " " + k.name) + (k.ort ? " · " + escapeHtml(k.ort) : "") + "</button>";
+      }).join("") + (kunden.length > 6 ? '<span style="font-size:12px;color:var(--tinte-2)">… genauer suchen</span>' : "");
+      elAuTreffer.querySelectorAll("[data-treffer]").forEach(function (b) {
+        b.addEventListener("click", function () { auKundeSetzen(auswahl[Number(b.dataset.treffer)]); });
+      });
+    });
+  }, 200);
+  elAuKunde.addEventListener("input", auKundeSuchen);
+
+  function auPostenZeichnen() {
+    elAuPosten.innerHTML = POSTEN_KOPF_HTML + postenZeilenHtml(auPosten) +
+      '<div class="knopfreihe"><button type="button" class="knopf" id="au-zeile-plus">+ Zeile</button></div>' +
+      '<div class="endsumme"><span>Total</span><b class="zahl">CHF ' + chf(postenSummeVon(auPosten)) + "</b></div>";
+    postenVerdrahten(
+      elAuPosten,
+      auPosten,
+      function () { elAuPosten.querySelector(".endsumme b").textContent = "CHF " + chf(postenSummeVon(auPosten)); },
+      auPostenZeichnen
+    );
+    document.getElementById("au-zeile-plus").addEventListener("click", function () {
+      auPosten.push(neuePostenzeile());
+      auPostenZeichnen();
+    });
+  }
+
+  document.getElementById("au-speichern").addEventListener("click", function () {
+    elAuFehler.hidden = true;
+    elAuErfolg.hidden = true;
+    var gueltig = auPosten.filter(function (p) { return p.bezeichnung.trim() && p.stueck > 0; });
+    if (!auKunde) { elAuFehler.textContent = "Bitte zuerst eine Kundin wählen (Kunden-Nr. oder Name)."; elAuFehler.hidden = false; return; }
+    if (!gueltig.length) { elAuFehler.textContent = "Mindestens eine Arbeit mit Bezeichnung nötig."; elAuFehler.hidden = false; return; }
+
+    var knopf = document.getElementById("au-speichern");
+    knopfSperren(knopf, true);
+    var kunde = auKunde;
+    invoke("auftrag_annehmen", {
+      eingabe: { kunde_id: kunde.id, posten: gueltig, abholdatum: document.getElementById("au-abholdatum").value || null },
+    })
+      .then(function (a) {
+        elAuErfolg.textContent = "Auftrag Nr. " + a.rechnungsnummer + " für " + kunde.vorname + " " + kunde.name +
+          " gespeichert (CHF " + chf(a.summe) + ")" + (a.abholdatum ? ", abholen am " + datumKurz(a.abholdatum) : "") + ".";
+        elAuErfolg.hidden = false;
+        auPosten = [neuePostenzeile()];
+        auPostenZeichnen();
+        elAuKunde.value = "";
+        auKundeSetzen(null);
+        document.getElementById("au-abholdatum").value = "";
+        auListeLaden();
+      })
+      .catch(function (e) { elAuFehler.textContent = fehlerText(e); elAuFehler.hidden = false; })
+      .finally(function () { knopfSperren(knopf, false); });
+  });
+
+  // "+ Neue Kundin": derselbe Dialog wie im Reiter Arbeiten, danach wird
+  // die neue Kundin hier direkt uebernommen.
+  document.getElementById("au-neue-kundin").addEventListener("click", function () {
+    document.getElementById("neuerKundeKnopf").click();
+    nkNachSpeichern = auKundeSetzen;
+  });
+
+  function auListeLaden() {
+    document.querySelectorAll("#auFilter button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.filter === auFilter));
+    });
+    var elListe = document.getElementById("auListe");
+    var elZusammenfassung = document.getElementById("auZusammenfassung");
+    invoke("auftraege_liste", { filter: auFilter })
+      .then(function (zeilen) {
+        if (auFilter === "unbezahlt") {
+          var total = zeilen.reduce(function (s, z) { return s + z.summe; }, 0);
+          elZusammenfassung.textContent = zeilen.length + (zeilen.length === 1 ? " offener Posten" : " offene Posten") +
+            " · total CHF " + chf(total);
+          elZusammenfassung.hidden = false;
+        } else {
+          elZusammenfassung.hidden = true;
+        }
+        if (!zeilen.length) {
+          elListe.innerHTML = '<tr><td colspan="8" class="leer">Keine Aufträge in dieser Ansicht.</td></tr>';
+          return;
+        }
+        elListe.innerHTML = zeilen.map(function (z) {
+          var laufend = z.status !== "Abgeholt";
+          var aktion = laufend
+            ? '<button type="button" class="knopf knopf-voll knopf-klein" data-abrechnen-kunde="' + z.kunde_id + '" data-abrechnen-id="' + z.id + '">Abrechnen</button>'
+            : !z.bezahlt
+              ? '<button type="button" class="knopf knopf-klein" data-bezahlt-id="' + z.id + '">bezahlt ✓</button>'
+              : '<span class="zahlart">' + escapeHtml(z.zahlart) + "</span>";
+          var alter = auFilter === "unbezahlt"
+            ? ' <span style="font-size:12px;color:var(--tinte-3)">(' + z.alter_tage + (z.alter_tage === 1 ? " Tag" : " Tage") + ")</span>"
+            : "";
+          return "<tr>" +
+            "<td>" + z.rechnungsnummer + "</td>" +
+            '<td><button type="button" class="knopf knopf-klein" data-kunde-id="' + z.kunde_id + '" title="Kundenblatt öffnen">' +
+            "Kd. " + z.kunde_nummer + " · " + escapeHtml(z.kunde_name) + "</button></td>" +
+            "<td>" + escapeHtml(z.arbeit) + "</td>" +
+            "<td>" + datumKurz(z.angenommen_am || z.datum) + alter + "</td>" +
+            '<td class="' + (istUeberfaellig(z) ? "ueberfaellig" : "") + '">' + (z.abholdatum ? datumKurz(z.abholdatum) : "–") + "</td>" +
+            "<td>" + (laufend ? statusWahlHtml(z) : (z.bezahlt ? "Abgeholt" : '<span class="zahlart za-offen">offen</span>')) + "</td>" +
+            '<td class="re">' + chf(z.summe) + "</td>" +
+            "<td>" + aktion + "</td></tr>";
+        }).join("");
+
+        elListe.querySelectorAll("[data-kunde-id]").forEach(function (b) {
+          b.addEventListener("click", function () { kundeOeffnen(Number(b.dataset.kundeId)); });
+        });
+        elListe.querySelectorAll("[data-abrechnen-id]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            kundeOeffnen(Number(b.dataset.abrechnenKunde), Number(b.dataset.abrechnenId));
+          });
+        });
+        elListe.querySelectorAll("[data-bezahlt-id]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            knopfSperren(b, true);
+            invoke("auftrag_bezahlt_markieren", { auftrag_id: Number(b.dataset.bezahltId) })
+              .then(auListeLaden)
+              .catch(function (e) { alert(fehlerText(e)); knopfSperren(b, false); });
+          });
+        });
+        statusWahlVerdrahten(elListe, auListeLaden);
+      })
+      .catch(function (e) { elListe.innerHTML = '<tr><td colspan="8" class="leer">' + fehlerText(e) + "</td></tr>"; });
+  }
+
+  document.querySelectorAll("#auFilter button").forEach(function (b) {
+    b.addEventListener("click", function () { auFilter = b.dataset.filter; auListeLaden(); });
+  });
+
+  // ================= PREISLISTE =================
+  var plAlle = [];
+  var plBearbeitenId = null;
+  var elPlListe = document.getElementById("plListe");
+  var elPlSuche = document.getElementById("plSuche");
+  var elPlInaktive = document.getElementById("plInaktive");
+  var elPreisDialog = document.getElementById("preisDialog");
+
+  function plLaden() {
+    invoke("preisliste_lesen", { inaktive_zeigen: elPlInaktive.checked })
+      .then(function (liste) {
+        plAlle = liste;
+        plZeichnen();
+        var kategorien = [];
+        liste.forEach(function (e) { if (e.kategorie && kategorien.indexOf(e.kategorie) === -1) kategorien.push(e.kategorie); });
+        document.getElementById("plKategorien").innerHTML = kategorien.map(function (k) {
+          return '<option value="' + escapeHtml(k) + '">';
+        }).join("");
+      })
+      .catch(function (e) { elPlListe.innerHTML = '<tr><td colspan="4" class="leer">' + fehlerText(e) + "</td></tr>"; });
+    preislisteVorschlaegeLaden();
+  }
+
+  function plZeichnen() {
+    var such = elPlSuche.value.trim().toLowerCase();
+    var liste = plAlle.filter(function (e) {
+      return !such || e.bezeichnung.toLowerCase().indexOf(such) !== -1 || e.kategorie.toLowerCase().indexOf(such) !== -1;
+    });
+    document.getElementById("plTreffer").textContent = liste.length + (liste.length === 1 ? " Eintrag" : " Einträge");
+    if (!plAlle.length) {
+      elPlListe.innerHTML = '<tr><td colspan="4" class="leer">Die Preisliste ist noch leer – über „Preisliste importieren“ ' +
+        "eine Excel-/CSV-Datei einlesen oder einzeln mit „+ Eintrag“ anlegen.</td></tr>";
+      return;
+    }
+    if (!liste.length) {
+      elPlListe.innerHTML = '<tr><td colspan="4" class="leer">Nichts gefunden.</td></tr>';
+      return;
+    }
+    elPlListe.innerHTML = liste.map(function (e) {
+      return "<tr" + (e.aktiv ? "" : ' style="opacity:.5"') + ">" +
+        "<td>" + escapeHtml(e.kategorie || "–") + "</td>" +
+        "<td>" + escapeHtml(e.bezeichnung) + (e.aktiv ? "" : ' <span class="merkmal m-archiv">deaktiviert</span>') + "</td>" +
+        '<td class="re">' + chf(e.preis) + "</td>" +
+        '<td><button type="button" class="knopf knopf-klein" data-pl-bearbeiten="' + e.id + '">Bearbeiten</button> ' +
+        '<button type="button" class="knopf knopf-klein" data-pl-aktiv="' + e.id + '" data-wert="' + (e.aktiv ? "0" : "1") + '">' +
+        (e.aktiv ? "Deaktivieren" : "Aktivieren") + "</button></td></tr>";
+    }).join("");
+
+    elPlListe.querySelectorAll("[data-pl-bearbeiten]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var id = Number(b.dataset.plBearbeiten);
+        plDialogOeffnen(plAlle.filter(function (e) { return e.id === id; })[0]);
+      });
+    });
+    elPlListe.querySelectorAll("[data-pl-aktiv]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        invoke("preis_eintrag_aktiv_setzen", { id: Number(b.dataset.plAktiv), aktiv: b.dataset.wert === "1" })
+          .then(plLaden)
+          .catch(function (e) { alert(fehlerText(e)); });
+      });
+    });
+  }
+
+  function plDialogOeffnen(e) {
+    plBearbeitenId = e ? e.id : null;
+    document.getElementById("pd-titel").textContent = e ? "Eintrag bearbeiten" : "Neuer Eintrag";
+    document.getElementById("pd-bezeichnung").value = e ? e.bezeichnung : "";
+    document.getElementById("pd-kategorie").value = e ? e.kategorie : "";
+    document.getElementById("pd-preis").value = e ? e.preis : "";
+    document.getElementById("pd-fehler").hidden = true;
+    elPreisDialog.showModal();
+    document.getElementById("pd-bezeichnung").focus();
+  }
+
+  document.getElementById("plNeuKnopf").addEventListener("click", function () { plDialogOeffnen(null); });
+  document.getElementById("pd-abbrechen").addEventListener("click", function () { elPreisDialog.close(); });
+  document.getElementById("pd-speichern").addEventListener("click", function () {
+    var elFehler = document.getElementById("pd-fehler");
+    var preisText = document.getElementById("pd-preis").value;
+    var eingabe = {
+      bezeichnung: document.getElementById("pd-bezeichnung").value.trim(),
+      kategorie: document.getElementById("pd-kategorie").value.trim(),
+      preis: preisText === "" ? NaN : Number(preisText),
+    };
+    if (!eingabe.bezeichnung || !(eingabe.preis >= 0)) {
+      elFehler.textContent = "Bitte Arbeit und einen Preis (0 oder mehr) eingeben.";
+      elFehler.hidden = false;
+      return;
+    }
+    invoke("preis_eintrag_speichern", { id: plBearbeitenId, eingabe: eingabe })
+      .then(function () { elPreisDialog.close(); plLaden(); })
+      .catch(function (e) { elFehler.textContent = fehlerText(e); elFehler.hidden = false; });
+  });
+  elPlSuche.addEventListener("input", debounce(plZeichnen, 120));
+  elPlInaktive.addEventListener("change", plLaden);
+
+  // --- Preisliste importieren (gleiche Erkennung wie bei Kunden/Ausgaben) ---
+  var elPliDialog = document.getElementById("preislisteImportDialog");
+  var elPliText = document.getElementById("pli-text");
+  var elPliKopfzeile = document.getElementById("pli-kopfzeile");
+  var elPliVorschau = document.getElementById("pli-vorschau");
+  var elPliFehler = document.getElementById("pli-fehler");
+  var elPliImportierenKnopf = document.getElementById("pli-importieren");
+  var pliGueltige = [];
+
+  var PLI_FELD_SYNONYME = {
+    bezeichnung: ["bezeichnung", "arbeit", "leistung", "beschreibung", "artikel", "taetigkeit", "tatigkeit", "position"],
+    kategorie: ["kategorie", "gruppe", "rubrik", "bereich", "art"],
+    preis: ["preis", "chf", "betrag", "kosten", "tarif", "fr"],
+  };
+
+  function pliKopfzeileZuordnen(spalten) {
+    var zuordnung = {};
+    spalten.forEach(function (roh, i) {
+      var text = kiTextNormalisieren(roh);
+      if (!text) return;
+      // Kurze Begriffe ("Fr", "Art", "CHF") nur als ganze Ueberschrift, sonst
+      // wuerde z.B. "Artikel" als Kategorie oder "für" als Preis erkannt.
+      ["preis", "bezeichnung", "kategorie"].forEach(function (feld) {
+        if (zuordnung[feld] !== undefined) return;
+        if (Object.keys(zuordnung).some(function (f) { return zuordnung[f] === i; })) return;
+        var passt = PLI_FELD_SYNONYME[feld].some(function (s) {
+          return text === s || (s.length > 3 && text.indexOf(s) !== -1);
+        });
+        if (passt) zuordnung[feld] = i;
+      });
+    });
+    return zuordnung;
+  }
+
+  function pliVorschauZeichnen(kopfzeileVonHand) {
+    var zeilen = kiZeilenAufteilen(elPliText.value);
+    if (!zeilen.length) {
+      elPliVorschau.innerHTML = "";
+      elPliImportierenKnopf.disabled = true;
+      pliGueltige = [];
+      return;
+    }
+    var trenner = kiTrennzeichenErkennen(zeilen[0]);
+    var tabelle = zeilen.map(function (z) { return kiZeileSpalten(z, trenner); });
+    var zuordnung = pliKopfzeileZuordnen(tabelle[0]);
+    var kopfErkannt = zuordnung.bezeichnung !== undefined && zuordnung.preis !== undefined;
+    if (!kopfzeileVonHand) elPliKopfzeile.checked = kopfErkannt;
+
+    // Ohne Kopfzeile: 2 Spalten = Arbeit, Preis; sonst Arbeit, Kategorie, Preis.
+    var zweiSpaltig = tabelle[0].length <= 2;
+    var bi = kopfErkannt ? zuordnung.bezeichnung : 0;
+    var ki = kopfErkannt ? zuordnung.kategorie : (zweiSpaltig ? undefined : 1);
+    var pi = kopfErkannt ? zuordnung.preis : (zweiSpaltig ? 1 : 2);
+
+    var eintraege = (elPliKopfzeile.checked ? tabelle.slice(1) : tabelle).map(function (sp) {
+      return {
+        bezeichnung: String(sp[bi] || "").trim(),
+        kategorie: ki !== undefined ? String(sp[ki] || "").trim() : "",
+        preis: thiBetragNormalisieren(sp[pi]),
+      };
+    });
+    pliGueltige = eintraege.filter(function (e) { return e.bezeichnung && e.preis >= 0; });
+    var ungueltig = eintraege.length - pliGueltige.length;
+
+    var zeilenHtml = eintraege.slice(0, 50).map(function (e) {
+      var ok = e.bezeichnung && e.preis >= 0;
+      return "<tr" + (ok ? "" : ' class="zeile-uebersprungen"') + "><td>" + escapeHtml(e.kategorie || "–") + "</td><td>" +
+        escapeHtml(e.bezeichnung || "–") + "</td><td>" + (e.preis >= 0 ? chf(e.preis) : "–") + "</td></tr>";
+    }).join("");
+    elPliVorschau.innerHTML =
+      '<div class="import-zusammenfassung">' +
+      (kopfErkannt ? "Kopfzeile erkannt – Spalten automatisch zugeordnet. "
+        : "Keine Kopfzeile erkannt – Reihenfolge " + (zweiSpaltig ? "Arbeit, Preis" : "Arbeit, Kategorie, Preis") + " angenommen. ") +
+      pliGueltige.length + " Einträge werden übernommen" +
+      (ungueltig ? ", " + ungueltig + " ohne Arbeit oder gültigen Preis werden übersprungen" : "") +
+      (eintraege.length > 50 ? " (zeigt die ersten 50 von " + eintraege.length + ")" : "") + "</div>" +
+      '<div class="tabellenrahmen"><table class="auflistung"><thead><tr><th>Kategorie</th><th>Arbeit</th><th>CHF</th></tr></thead><tbody>' +
+      zeilenHtml + "</tbody></table></div>";
+    elPliImportierenKnopf.disabled = pliGueltige.length === 0;
+  }
+
+  document.getElementById("plImportKnopf").addEventListener("click", function () {
+    elPliText.value = "";
+    elPliVorschau.innerHTML = "";
+    elPliFehler.hidden = true;
+    elPliKopfzeile.checked = false;
+    elPliImportierenKnopf.disabled = true;
+    pliGueltige = [];
+    elPliDialog.showModal();
+    elPliText.focus();
+  });
+  document.getElementById("pli-abbrechen").addEventListener("click", function () { elPliDialog.close(); });
+  elPliText.addEventListener("input", debounce(function () { pliVorschauZeichnen(false); }, 150));
+  elPliKopfzeile.addEventListener("change", function () { pliVorschauZeichnen(true); });
+  document.getElementById("pli-datei").addEventListener("click", function () {
+    elPliFehler.hidden = true;
+    dateiFuerImportLesen(
+      elPliText,
+      function () { pliVorschauZeichnen(false); },
+      function (meldung) { elPliFehler.textContent = meldung; elPliFehler.hidden = false; }
+    );
+  });
+  elPliImportierenKnopf.addEventListener("click", function () {
+    if (!pliGueltige.length) return;
+    elPliFehler.hidden = true;
+    knopfSperren(elPliImportierenKnopf, true);
+    invoke("preisliste_importieren", { eingaben: pliGueltige })
+      .then(function (r) {
+        elPliDialog.close();
+        plLaden();
+        alert(r.neu + " neu übernommen, " + r.aktualisiert + " bestehende aktualisiert.");
+      })
+      .catch(function (e) { elPliFehler.textContent = fehlerText(e); elPliFehler.hidden = false; })
+      .finally(function () { knopfSperren(elPliImportierenKnopf, false); });
+  });
+
   // ================= REITER =================
   document.querySelectorAll('[role="tab"]').forEach(function (t) {
     t.addEventListener("click", function () {
@@ -2109,6 +2772,9 @@
         x.setAttribute("aria-selected", an);
         document.getElementById(x.getAttribute("aria-controls")).hidden = !an;
       });
+      if (t.id === "r-start") uebersichtLaden();
+      if (t.id === "r-auftraege") auListeLaden();
+      if (t.id === "r-preisliste") plLaden();
       if (t.id === "r-monat") { monatLaden(); maListeLaden(); }
       if (t.id === "r-stunden") stMonatLaden();
       if (t.id === "r-treuhand") thLaden();
@@ -2119,5 +2785,8 @@
   function programmStarten() {
     suchtextSuchen();
     elBlatt.innerHTML = '<p class="leer" style="padding:40px">Links einen Kunden wählen oder „+ Neuer Kunde".</p>';
+    auPostenZeichnen();
+    preislisteVorschlaegeLaden();
+    reiterOeffnen("r-start");
   }
 })();

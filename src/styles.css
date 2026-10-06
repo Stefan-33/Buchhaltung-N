@@ -66,8 +66,8 @@ input{font:inherit;color:inherit;}
 .marke-text strong{font-family:Georgia,serif;font-size:17px;font-weight:600;display:block;}
 .marke-text span{font-size:12px;color:var(--tinte-2);letter-spacing:.02em;}
 
-.reiter{display:flex;gap:2px;background:var(--blatt-2);padding:3px;border-radius:9px;margin-left:24px;}
-.reiter button{border:0;background:none;padding:7px 15px;border-radius:7px;font-size:14px;font-weight:500;color:var(--tinte-2);}
+.reiter{display:flex;flex-wrap:wrap;gap:2px;background:var(--blatt-2);padding:3px;border-radius:9px;margin-left:24px;}
+.reiter button{border:0;background:none;padding:7px 12px;border-radius:7px;font-size:14px;font-weight:500;color:var(--tinte-2);}
 .reiter button[aria-selected="true"]{background:var(--blatt);color:var(--tinte);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08);}
 
 .kopf-benutzer{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--tinte-2);}
@@ -288,3 +288,19 @@ input{font:inherit;color:inherit;}
   .quittung, .quittung *{visibility:visible;}
   .quittung{position:absolute;top:0;left:0;width:100%;border:0;padding:0;}
 }
+
+/* ---------- Uebersicht / Auftraege ---------- */
+.kachel-knopf{border:0;text-align:left;cursor:pointer;font:inherit;color:inherit;width:100%;}
+.kachel-knopf:hover{outline:2px solid var(--linie-stark);}
+.kachel-warn b{color:var(--faden);}
+.kachel-gut b{color:var(--gruen);}
+.status-wahl{padding:4px 6px;border:1px solid var(--linie-stark);border-radius:7px;background:var(--grund);font-size:13px;color:inherit;}
+.ueberfaellig{color:var(--faden);font-weight:600;}
+.klickzeile{cursor:pointer;}
+.klickzeile:hover td{background:var(--blatt-2);}
+.knopf-klein{font-size:12px;padding:3px 10px;}
+.auftragsliste td:nth-child(3){white-space:normal;min-width:140px;}
+.auflistung .re{text-align:right;font-variant-numeric:tabular-nums;}
+.kurzliste td:first-child{width:90px;white-space:nowrap;}
+.kurzliste td:nth-child(3){width:130px;}
+.kurzliste td:nth-child(4){width:90px;}

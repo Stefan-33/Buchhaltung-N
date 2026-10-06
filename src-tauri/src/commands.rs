@@ -2,9 +2,11 @@
 // (Datenbank/Logik). Jede Funktion hier mit #[tauri::command(rename_all = "snake_case")] kann das
 // Frontend per invoke("funktionsname", { ... }) aufrufen.
 
+use crate::auftraege::{self, AuftragZeile, NeueAnnahme, Uebersicht};
 use crate::auth::{self, Benutzer, NeueMitarbeiterin};
 use crate::einstellungen::{self, Einstellungen};
-use crate::geschaeft::{self, Auftrag, KundeBearbeiten, Kunde, NeuerAuftrag, NeuerKunde};
+use crate::geschaeft::{self, Auftrag, KundeBearbeiten, Kunde, NeuerAuftrag, NeuerKunde, Posten};
+use crate::preisliste::{self, NeuerPreisEintrag, PreisEintrag, PreislisteImport};
 use crate::quittung;
 use crate::sicherung;
 use crate::stunden::{self, StundenEintrag};
@@ -278,4 +280,74 @@ pub fn quittung_als_pdf_oeffnen(zustand: State<AppZustand>, auftrag: Auftrag, ku
     let pfad = quittung::quittung_pdf_erzeugen(&auftrag, &kunde, &einstellungen)?;
     sicherung::mit_standardprogramm_oeffnen(&pfad)?;
     Ok(pfad.display().to_string())
+}
+
+// ---------- Auftraege (Annahme -> Abrechnen) und Uebersicht ----------
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn kunde_nach_nummer(zustand: State<AppZustand>, nummer: i64) -> Antwort<Kunde> {
+    let conn = verbindung_sperren(&zustand);
+    geschaeft::kunde_nach_nummer(&conn, nummer).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn auftrag_annehmen(zustand: State<AppZustand>, eingabe: NeueAnnahme) -> Antwort<Auftrag> {
+    let mut conn = verbindung_sperren(&zustand);
+    auftraege::auftrag_annehmen(&mut conn, eingabe).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn auftrag_abrechnen(zustand: State<AppZustand>, auftrag_id: i64, zahlart: String, posten: Vec<Posten>) -> Antwort<Auftrag> {
+    let mut conn = verbindung_sperren(&zustand);
+    auftraege::auftrag_abrechnen(&mut conn, auftrag_id, &zahlart, posten).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn auftrag_status_setzen(zustand: State<AppZustand>, auftrag_id: i64, status: String) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    auftraege::auftrag_status_setzen(&conn, auftrag_id, &status).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn auftrag_bezahlt_markieren(zustand: State<AppZustand>, auftrag_id: i64) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    auftraege::auftrag_bezahlt_markieren(&conn, auftrag_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn auftraege_liste(zustand: State<AppZustand>, filter: String) -> Antwort<Vec<AuftragZeile>> {
+    let conn = verbindung_sperren(&zustand);
+    auftraege::auftraege_liste(&conn, &filter).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn uebersicht(zustand: State<AppZustand>) -> Antwort<Uebersicht> {
+    let conn = verbindung_sperren(&zustand);
+    auftraege::uebersicht(&conn).map_err(|e| e.to_string())
+}
+
+// ---------- Preisliste ----------
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn preisliste_lesen(zustand: State<AppZustand>, inaktive_zeigen: bool) -> Antwort<Vec<PreisEintrag>> {
+    let conn = verbindung_sperren(&zustand);
+    preisliste::preisliste_lesen(&conn, inaktive_zeigen).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn preis_eintrag_speichern(zustand: State<AppZustand>, id: Option<i64>, eingabe: NeuerPreisEintrag) -> Antwort<PreisEintrag> {
+    let conn = verbindung_sperren(&zustand);
+    preisliste::preis_eintrag_speichern(&conn, id, &eingabe).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn preis_eintrag_aktiv_setzen(zustand: State<AppZustand>, id: i64, aktiv: bool) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    preisliste::preis_eintrag_aktiv_setzen(&conn, id, aktiv).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn preisliste_importieren(zustand: State<AppZustand>, eingaben: Vec<NeuerPreisEintrag>) -> Antwort<PreislisteImport> {
+    let mut conn = verbindung_sperren(&zustand);
+    preisliste::preisliste_importieren(&mut conn, eingaben).map_err(|e| e.to_string())
 }

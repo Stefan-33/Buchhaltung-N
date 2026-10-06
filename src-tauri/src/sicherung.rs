@@ -74,31 +74,33 @@ pub fn jetzt_sichern(conn: &Connection) -> Result<PathBuf, String> {
     //    Steuerberater-Export, der als naechstes dazukommt.
     let mut stmt = conn
         .prepare(
-            "SELECT a.rechnungsnummer, a.datum, k.nummer, k.name, k.vorname, a.zahlart, a.summe
+            "SELECT a.rechnungsnummer, a.datum, k.nummer, k.name, k.vorname, a.zahlart, a.summe,
+                    a.status, a.bezahlt, COALESCE(a.bezahlt_am, ''), COALESCE(a.abholdatum, '')
              FROM auftraege a JOIN kunden k ON k.id = a.kunde_id
              ORDER BY a.datum, a.rechnungsnummer",
         )
         .map_err(|e| e.to_string())?;
-    let mut auftraege_csv = String::from("Rechnungsnr,Datum,Kundennr,Name,Vorname,Zahlart,Betrag\n");
+    let mut auftraege_csv =
+        String::from("Rechnungsnr,Datum,Kundennr,Name,Vorname,Zahlart,Betrag,Status,Bezahlt,Bezahlt am,Abholdatum\n");
     let zeilen = stmt
         .query_map([], |z| {
             Ok((
-                z.get::<_, i64>(0)?,
-                z.get::<_, String>(1)?,
-                z.get::<_, i64>(2)?,
-                z.get::<_, String>(3)?,
-                z.get::<_, String>(4)?,
-                z.get::<_, String>(5)?,
-                z.get::<_, f64>(6)?,
+                (z.get::<_, i64>(0)?, z.get::<_, String>(1)?, z.get::<_, i64>(2)?),
+                (z.get::<_, String>(3)?, z.get::<_, String>(4)?),
+                (z.get::<_, String>(5)?, z.get::<_, f64>(6)?),
+                (z.get::<_, String>(7)?, z.get::<_, i64>(8)?, z.get::<_, String>(9)?, z.get::<_, String>(10)?),
             ))
         })
         .map_err(|e| e.to_string())?;
     for zeile in zeilen {
-        let (rnr, datum, knr, name, vorname, zahlart, summe) = zeile.map_err(|e| e.to_string())?;
+        let ((rnr, datum, knr), (name, vorname), (zahlart, summe), (status, bezahlt, bezahlt_am, abholdatum)) =
+            zeile.map_err(|e| e.to_string())?;
         auftraege_csv.push_str(&format!(
-            "{rnr},{datum},{knr},{},{},{zahlart},{summe:.2}\n",
+            "{rnr},{datum},{knr},{},{},{zahlart},{summe:.2},{},{},{bezahlt_am},{abholdatum}\n",
             csv_feld(&name),
-            csv_feld(&vorname)
+            csv_feld(&vorname),
+            csv_feld(&status),
+            if bezahlt != 0 { "ja" } else { "nein" }
         ));
     }
     schreiben(&ziel_ordner.join("auftraege.csv"), &auftraege_csv)?;

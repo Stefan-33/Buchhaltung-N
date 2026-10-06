@@ -37,6 +37,27 @@ fn datum_kurz(iso: &str) -> String {
     }
 }
 
+/// Ein bezahlter Auftrag bekommt eine Quittung, ein noch offener (per
+/// Rechnung abgerechneter) eine Rechnung - sonst stuende auf dem Beleg
+/// "bezahlt", obwohl noch nichts bezahlt ist.
+fn beleg_titel(auftrag: &Auftrag) -> &'static str {
+    if auftrag.bezahlt {
+        "Quittung"
+    } else {
+        "Rechnung"
+    }
+}
+
+fn total_text(auftrag: &Auftrag) -> String {
+    if auftrag.bezahlt {
+        format!("Total · bezahlt {}", auftrag.zahlart)
+    } else if auftrag.zahlart == "Rechnung" {
+        "Total · zahlbar per Rechnung".to_string()
+    } else {
+        "Total · noch offen".to_string()
+    }
+}
+
 /// Baut den Quittungskopf (Logo, Name, Zeile 2, Adresse, Telefon/Web) -
 /// eine Zeile wird nur ausgegeben, wenn in den Einstellungen dafuer auch
 /// ein Text hinterlegt ist. So kann Stefan ueber "Einstellungen" selbst
@@ -122,7 +143,7 @@ fn quittung_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groes
     format!(
         r#"<html><body style="padding:8mm;font-family:sans-serif;font-size:11pt;">
 {kopf}
-<p style="font-size:13pt;font-weight:bold;margin:0;">Quittung {nr} · {datum}</p>
+<p style="font-size:13pt;font-weight:bold;margin:0;">{titel} {nr} · {datum}</p>
 <p style="margin:0 0 4mm 0;color:#555555;">{vorname} {kname} · {ort}</p>
 
 <hr/>
@@ -132,18 +153,19 @@ fn quittung_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groes
 </table>
 <hr/>
 
-<p style="text-align:right;font-weight:bold;font-size:13pt;">Total · bezahlt {zahlart} &nbsp; CHF {summe:.2}</p>
+<p style="text-align:right;font-weight:bold;font-size:13pt;">{total_text} &nbsp; CHF {summe:.2}</p>
 
 {fuss}
 </body></html>"#,
         kopf = quittung_kopf(e, logo_groesse_mm),
+        titel = beleg_titel(auftrag),
         nr = auftrag.rechnungsnummer,
         datum = datum_kurz(&auftrag.datum),
         vorname = html_escapen(&kunde.vorname),
         kname = html_escapen(&kunde.name),
         ort = html_escapen(&kunde.ort),
         zeilen = zeilen,
-        zahlart = html_escapen(&auftrag.zahlart),
+        total_text = html_escapen(&total_text(auftrag)),
         summe = auftrag.summe,
         fuss = quittung_fuss(e),
     )
@@ -187,7 +209,7 @@ pub fn quittung_pdf_erzeugen(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen
     let bytes = quittung_pdf_bytes(auftrag, kunde, e)?;
     let ordner = sicherungs_ordner().join("Quittungen");
     std::fs::create_dir_all(&ordner).map_err(|e| e.to_string())?;
-    let pfad = ordner.join(format!("Quittung_{}.pdf", auftrag.rechnungsnummer));
+    let pfad = ordner.join(format!("{}_{}.pdf", beleg_titel(auftrag), auftrag.rechnungsnummer));
     std::fs::write(&pfad, bytes).map_err(|e| e.to_string())?;
     Ok(pfad)
 }
@@ -236,6 +258,11 @@ mod tests {
                 Posten { bezeichnung: "Hose kürzen".into(), stueck: 1.0, preis: 25.0 },
                 Posten { bezeichnung: "Reissverschluss ersetzen".into(), stueck: 1.0, preis: 18.5 },
             ],
+            status: "Abgeholt".into(),
+            abholdatum: None,
+            angenommen_am: None,
+            bezahlt: true,
+            bezahlt_am: Some("2026-10-05".into()),
         }
     }
 
@@ -255,12 +282,34 @@ mod tests {
             jahresumsatz: 0.0,
             anzahl_auftraege: 1,
             letzter_besuch: None,
+            offen_summe: 0.0,
         }
     }
 
     #[test]
     fn datum_kurz_rechnet_iso_datum_ins_schweizer_format_um() {
         assert_eq!(datum_kurz("2026-10-05"), "05.10.2026");
+    }
+
+    #[test]
+    fn bezahlter_auftrag_wird_als_quittung_mit_zahlart_gedruckt() {
+        let html = quittung_html(&test_auftrag(), &test_kunde(), &Einstellungen::default(), None);
+        assert!(html.contains("Quittung 1259"));
+        assert!(html.contains("Total · bezahlt Bar"));
+    }
+
+    // Stefans Wunsch: ein per Rechnung abgerechneter, noch offener Auftrag
+    // darf auf dem Beleg nicht "bezahlt" heissen.
+    #[test]
+    fn offener_auftrag_wird_als_rechnung_ohne_bezahlt_vermerk_gedruckt() {
+        let mut auftrag = test_auftrag();
+        auftrag.zahlart = "Rechnung".into();
+        auftrag.bezahlt = false;
+        auftrag.bezahlt_am = None;
+        let html = quittung_html(&auftrag, &test_kunde(), &Einstellungen::default(), None);
+        assert!(html.contains("Rechnung 1259"));
+        assert!(html.contains("zahlbar per Rechnung"));
+        assert!(!html.contains("bezahlt"), "darf nirgends 'bezahlt' stehen");
     }
 
     #[test]

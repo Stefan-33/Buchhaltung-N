@@ -173,7 +173,7 @@ fn zusammenfassen(einnahmen: f64, ausgaben: &[Ausgabe]) -> TreuhandZusammenfassu
 
 fn einnahmen_eines_jahres(conn: &Connection, jahr: i32) -> rusqlite::Result<f64> {
     conn.query_row(
-        "SELECT COALESCE(SUM(summe), 0) FROM auftraege WHERE strftime('%Y', datum) = ?1",
+        "SELECT COALESCE(SUM(summe), 0) FROM auftraege WHERE strftime('%Y', datum) = ?1 AND status = 'Abgeholt'",
         [jahr.to_string()],
         |z| z.get(0),
     )
