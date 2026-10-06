@@ -382,3 +382,34 @@ tr.sf-warn{--streifen:var(--faden);}
 .kurzliste td:nth-child(3){width:80px;}
 .kurzliste td:nth-child(4){width:96px;}
 .telefon{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--tinte);}
+
+/* ---------- Reiter Mitarbeiter ---------- */
+/* display-Regeln unten wuerden das hidden-Attribut sonst aushebeln */
+.ma-person[hidden],.unterreiter[hidden],.unterreiter-zahl[hidden]{display:none;}
+.ma-kopf{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:0;}
+.ma-person{margin-top:0;min-width:220px;}
+.ma-hinweis{margin:12px 0 0;padding:9px 12px;border-radius:8px;background:var(--blatt-2);border-left:3px solid var(--faden);font-size:13.5px;}
+.link-knopf{border:0;background:none;padding:0;font:inherit;color:var(--gruen-tief);text-decoration:underline;text-underline-offset:2px;cursor:pointer;text-align:left;}
+.link-knopf:hover{color:var(--tinte);}
+tr.ma-gewaehlt > td{background:var(--gruen-matt);}
+.lohn-tabelle tfoot td{font-weight:700;border-top:2px solid var(--linie-stark);}
+.lohnausweis-kasten{margin-top:16px;padding:14px 16px;border:1px solid var(--linie);border-radius:10px;background:var(--grund);max-width:560px;}
+.lohnausweis-kasten h3{margin:0 0 8px;font-size:14px;}
+.lohnausweis-kasten h3 + dl{margin-top:0;}
+.lohnausweis-kasten dl{display:grid;grid-template-columns:1fr auto;gap:5px 18px;margin:0 0 12px;font-size:14px;}
+.lohnausweis-kasten dt{color:var(--tinte-2);}
+.lohnausweis-kasten dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;}
+.form-gruppe{margin:18px 0 6px;font-size:14px;display:flex;align-items:baseline;gap:10px;}
+.form-gruppe:first-child{margin-top:0;}
+.form-gruppe small{font-weight:400;color:var(--tinte-2);font-size:12.5px;}
+.form-gruppe select{font-size:12.5px;padding:2px 6px;border:1px solid var(--linie-stark);border-radius:6px;background:var(--grund);color:var(--tinte);}
+.form-punkt{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:start;padding:10px 12px;border:1px solid var(--linie);
+  border-radius:9px;margin-bottom:6px;cursor:pointer;background:var(--blatt);}
+.form-punkt:hover{border-color:var(--linie-stark);}
+.form-punkt input{width:18px;height:18px;margin:2px 0 0;accent-color:var(--gruen);}
+.form-punkt b{display:block;font-size:14px;}
+.form-punkt small{display:block;color:var(--tinte-2);font-size:12.5px;margin-top:2px;max-width:70ch;}
+.form-punkt em{font-style:normal;font-size:12px;color:var(--gruen-tief);white-space:nowrap;font-weight:600;}
+.form-punkt.erledigt{background:var(--gruen-matt);border-color:transparent;}
+.form-punkt.erledigt b{text-decoration:line-through;text-decoration-color:var(--tinte-3);}
+@media (max-width:600px){.form-punkt{grid-template-columns:auto 1fr;}.form-punkt em{grid-column:2;}}

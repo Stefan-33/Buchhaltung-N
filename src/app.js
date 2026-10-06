@@ -111,8 +111,9 @@
     el.inert = !zeigen;
   }
 
-  // Eine Mitarbeiterin sieht nur "Arbeiten" (Kunden suchen/anlegen/
-  // importieren, Aufträge buchen) und "Stunden" (nur ihre eigenen) - Umsatz,
+  // Eine Mitarbeiterin sieht nur "Kunden" (Kunden suchen/anlegen/
+  // importieren, Aufträge buchen) und unter "Mitarbeiter" nur ihre eigenen
+  // Stunden (keine Personenwahl, kein Lohn, keine Formulare) - Umsatz,
   // Auswertung, Sicherung, das Anlegen weiterer Konten und die
   // Stunden-Uebersicht aller Mitarbeiterinnen bleiben Papa/Mama (Rolle
   // "inhaber") vorbehalten. Reine Oberflaechen-Einschraenkung, keine
@@ -124,6 +125,11 @@
     document.getElementById("r-treuhand").hidden = istMitarbeiterin;
     document.getElementById("gruppeAuswertung").hidden = istMitarbeiterin;
     document.getElementById("stAlleTafel").hidden = istMitarbeiterin;
+    document.getElementById("maPersonZeile").hidden = istMitarbeiterin;
+    document.getElementById("maUnterreiter").hidden = istMitarbeiterin;
+    document.getElementById("r-stunden").textContent = istMitarbeiterin ? "Meine Stunden" : "Mitarbeiter";
+    maPersonId = null;
+    maAnsicht = "stunden";
     // Geschaeftsangaben und Kartengebuehr-Saetze gelten fuer den ganzen
     // Betrieb, nicht fuer eine einzelne Person - nur Papa/Mama aendern die.
     document.getElementById("eiGeschaeftTafel").hidden = istMitarbeiterin;
@@ -1366,14 +1372,122 @@
       .join("");
   }
 
-  // ================= STUNDEN =================
-  // Eigener Reiter, bewusst getrennt von "Arbeiten" (Kunden) - Stefans
-  // Wunsch war ausdruecklich, das Erfassen der Stunden nicht mit den
-  // Kunden zu vermischen. Rechnet keinen Lohn aus - das passiert weiterhin
-  // in Stefans eigenem Excel, hier gibt's nur die rohen Stunden (auch als
-  // stunden.csv in der Sicherung, siehe "Jetzt sichern"). Erfassung wie in
+  // ================= MITARBEITER =================
+  // Ein Reiter fuer alles, was Papa fuer eine Mitarbeiterin eintragen muss:
+  // Stunden, Personalien, Lohn und Formulare - umgeschaltet ueber die
+  // Unterreiter, die oben gewaehlte "Person" gilt fuer alle vier. Eine
+  // angemeldete Mitarbeiterin sieht nur "Stunden" (ihre eigenen).
+  var elMaPerson = document.getElementById("maPerson");
+  var maPersonen = [];   // alle_benutzer, nur fuer Papa/Mama geladen
+  var maPersonId = null; // gewaehlte Person, null = noch nichts gewaehlt
+  var maAnsicht = "stunden";
+
+  function istInhaber() { return !!aktuellerBenutzer && aktuellerBenutzer.rolle === "inhaber"; }
+
+  function maPersonIdAktuell() {
+    return istInhaber() && maPersonId ? maPersonId : aktuellerBenutzer.id;
+  }
+
+  function maPersonAktuell() {
+    var id = maPersonIdAktuell();
+    return maPersonen.filter(function (b) { return b.id === id; })[0] || aktuellerBenutzer;
+  }
+
+  // Volles Datum "17.05.1980" - beim Geburtsdatum waere "17.05.80" zweideutig.
+  function datumVoll(iso) {
+    return iso ? iso.split("-").reverse().join(".") : "";
+  }
+
+  function maMitarbeiterinnen() {
+    return maPersonen.filter(function (b) { return b.rolle === "mitarbeiterin"; });
+  }
+
+  function maPersonAuswahlZeichnen() {
+    var ma = maMitarbeiterinnen();
+    var andere = maPersonen.filter(function (b) { return b.rolle !== "mitarbeiterin"; });
+    if (!maPersonId || !maPersonen.some(function (b) { return b.id === maPersonId; })) {
+      maPersonId = ma.length ? ma[0].id : aktuellerBenutzer.id;
+    }
+    function optionen(liste) {
+      return liste.map(function (b) {
+        var zusatz = b.austritt ? " (ausgetreten)" : "";
+        return '<option value="' + b.id + '"' + (b.id === maPersonId ? " selected" : "") + ">" + escapeHtml(b.anzeigename) + zusatz + "</option>";
+      }).join("");
+    }
+    elMaPerson.innerHTML =
+      (ma.length ? '<optgroup label="Mitarbeiterinnen">' + optionen(ma) + "</optgroup>" : "") +
+      (andere.length ? '<optgroup label="Inhaber">' + optionen(andere) + "</optgroup>" : "");
+  }
+
+  // Laedt die Personen neu (z. B. nach Anlegen/Bearbeiten) und zeichnet die
+  // aktuelle Ansicht.
+  function maLaden() {
+    if (!istInhaber()) {
+      maPersonen = [aktuellerBenutzer];
+      maAnsichtZeigen("stunden");
+      return Promise.resolve();
+    }
+    return invoke("alle_benutzer")
+      .then(function (benutzer) { maPersonen = benutzer; })
+      .catch(function () { maPersonen = [aktuellerBenutzer]; })
+      .then(function () {
+        maPersonAuswahlZeichnen();
+        maAnsichtZeigen(maAnsicht);
+        maFormulareZaehlen();
+      });
+  }
+
+  function maAnsichtZeigen(ansicht) {
+    if (!istInhaber()) ansicht = "stunden";
+    maAnsicht = ansicht;
+    document.querySelectorAll("#maUnterreiter [data-ma-ansicht]").forEach(function (b) {
+      b.setAttribute("aria-selected", b.dataset.maAnsicht === ansicht);
+    });
+    document.querySelectorAll("[data-ma-teil]").forEach(function (teil) {
+      teil.hidden = teil.dataset.maTeil !== ansicht;
+    });
+    if (ansicht === "stunden") stMonatLaden();
+    if (ansicht === "personalien") maListeZeichnen();
+    if (ansicht === "lohn") maLohnLaden();
+    if (ansicht === "formulare") maFormLaden();
+  }
+
+  document.querySelectorAll("#maUnterreiter [data-ma-ansicht]").forEach(function (b) {
+    b.addEventListener("click", function () { maAnsichtZeigen(b.dataset.maAnsicht); });
+  });
+  elMaPerson.addEventListener("change", function () {
+    maPersonId = Number(elMaPerson.value);
+    maAnsichtZeigen(maAnsicht);
+    maFormulareZaehlen();
+  });
+
+  // Was fuer Lohnabrechnung/Lohnausweis noch fehlt - als Hinweis in "Lohn"
+  // und "Formulare", damit Papa es nicht erst beim Ausfuellen merkt.
+  function maFehlendeAngaben(p) {
+    var fehlt = [];
+    if (!p.strasse || !p.plz_ort) fehlt.push("Adresse");
+    if (!p.ahv_nummer) fehlt.push("AHV-Nummer");
+    if (!p.geburtsdatum) fehlt.push("Geburtsdatum");
+    if (!p.eintritt) fehlt.push("Eintritt");
+    if (!p.stundenlohn) fehlt.push("Stundenlohn");
+    return fehlt;
+  }
+
+  function maHinweisSetzen(el, p) {
+    var fehlt = p.rolle === "mitarbeiterin" ? maFehlendeAngaben(p) : [];
+    el.hidden = !fehlt.length;
+    if (fehlt.length) {
+      el.innerHTML = "Bei " + escapeHtml(p.anzeigename) + " fehlt noch: <b>" + escapeHtml(fehlt.join(", ")) +
+        '</b> – <button type="button" class="link-knopf" data-ma-bearbeiten="' + p.id + '">jetzt ergänzen</button>';
+      el.querySelector("[data-ma-bearbeiten]").addEventListener("click", function () { maDialogOeffnen(p); });
+    }
+  }
+
+  // ---- Stunden ----
+  // Bewusst getrennt von den Kunden (Stefans Wunsch). Erfassung wie in
   // Stefans bisheriger Excel-Vorlage: pro Tag zwei Zeitbloecke (Vormittag/
   // Nachmittag), die Stunden werden daraus berechnet statt eingetippt.
+  // Papa/Mama erfassen fuer die oben gewaehlte Person.
   var elStDatum = document.getElementById("st-datum");
   var elStVmBeginn = document.getElementById("st-vm-beginn");
   var elStVmEnde = document.getElementById("st-vm-ende");
@@ -1428,7 +1542,7 @@
 
     elStEigeneListe.querySelectorAll("button[data-id]").forEach(function (knopf) {
       knopf.addEventListener("click", function () {
-        invoke("stunden_loeschen", { id: Number(knopf.dataset.id), benutzer_id: aktuellerBenutzer.id })
+        invoke("stunden_loeschen", { id: Number(knopf.dataset.id), benutzer_id: maPersonIdAktuell() })
           .then(stMonatLaden)
           .catch(function (e) { alert(fehlerText(e)); });
       });
@@ -1468,8 +1582,12 @@
   }
 
   function stMonatLaden() {
-    elStMonatTitel.textContent = MONATSNAMEN[stMonat - 1].replace(".", "") + " " + stJahr;
-    invoke("eigene_stunden", { benutzer_id: aktuellerBenutzer.id, jahr: stJahr, monat: stMonat })
+    var person = maPersonAktuell();
+    var eigene = person.id === aktuellerBenutzer.id;
+    document.getElementById("stErfassenTitel").textContent = eigene ? "Stunden erfassen" : "Stunden erfassen für " + person.anzeigename;
+    document.getElementById("stPersonText").textContent = eigene ? "Deine eigenen Stunden" : "Stunden von " + person.anzeigename;
+    elStMonatTitel.textContent = MONATSNAMEN_LANG[stMonat - 1] + " " + stJahr;
+    invoke("eigene_stunden", { benutzer_id: person.id, jahr: stJahr, monat: stMonat })
       .then(stEigeneZeichnen)
       .catch(function (e) { elStEigeneListe.innerHTML = '<p class="leer">' + fehlerText(e) + "</p>"; });
 
@@ -1534,7 +1652,7 @@
     }
 
     knopfSperren(elStEintragenKnopf, true);
-    invoke("stunden_erfassen", { benutzer_id: aktuellerBenutzer.id, eingabe: eingabe })
+    invoke("stunden_erfassen", { benutzer_id: maPersonIdAktuell(), eingabe: eingabe })
       .then(function () {
         elStVmBeginn.value = "";
         elStVmEnde.value = "";
@@ -1659,7 +1777,7 @@
         .then(function (benutzer) {
           elStiFuerWen.innerHTML = benutzer
             .map(function (b) {
-              var ausgewaehlt = b.id === aktuellerBenutzer.id ? " selected" : "";
+              var ausgewaehlt = b.id === maPersonIdAktuell() ? " selected" : "";
               return '<option value="' + b.id + '"' + ausgewaehlt + ">" + escapeHtml(b.anzeigename) + "</option>";
             })
             .join("");
@@ -1694,7 +1812,7 @@
     invoke("stunden_importieren", { benutzer_id: fuerWenId, eingaben: stiGueltigeEintraege })
       .then(function (anzahl) {
         elStiDialog.close();
-        if (fuerWenId === aktuellerBenutzer.id) stMonatLaden();
+        if (fuerWenId === maPersonIdAktuell()) stMonatLaden();
         alert(anzahl + (anzahl === 1 ? " Eintrag wurde importiert." : " Einträge wurden importiert."));
       })
       .catch(function (e) {
@@ -1712,12 +1830,11 @@
       .catch(function (e) { echo.textContent = fehlerText(e); echo.style.color = "var(--faden)"; });
   });
 
-  // ================= MITARBEITERIN ANLEGEN / BEARBEITEN =================
+  // ---- Personalien: Mitarbeiterin anlegen / bearbeiten ----
   // Bewusst ohne Login-Option: eine Mitarbeiterin bekommt hier nur ein
-  // Lohnprofil (fuer die Treuhand-Lohnabrechnung), keinen Zugang zum
-  // Programm - Stefan traegt ihre Stunden selbst ein (ueber "Fuer wen?").
-  // Derselbe Dialog fuer beides, genau wie bei "Kunde bearbeiten" -
-  // "maBearbeitenId" entscheidet, ob neu angelegt oder aktualisiert wird.
+  // Lohnprofil, keinen Zugang zum Programm - Stefan traegt ihre Stunden
+  // selbst ein. Derselbe Dialog fuer beides, genau wie bei "Kunde
+  // bearbeiten" - "maBearbeitenId" entscheidet, ob neu oder aktualisiert.
   var elMaDialog = document.getElementById("mitarbeiterinDialog");
   var elMaFehler = document.getElementById("ma-fehler");
   var elMaErfolg = document.getElementById("ma-erfolg");
@@ -1725,25 +1842,43 @@
   var elMaListe = document.getElementById("maListe");
   var maBearbeitenId = null;
 
-  function maListeLaden() {
-    invoke("alle_benutzer").then(function (benutzer) {
-      var mitarbeiterinnen = benutzer.filter(function (b) { return b.rolle === "mitarbeiterin"; });
-      if (!mitarbeiterinnen.length) { elMaListe.innerHTML = ""; return; }
-      elMaListe.innerHTML =
-        '<div class="tabellenrahmen" style="margin:12px 0"><table class="auflistung"><tbody>' +
-        mitarbeiterinnen
-          .map(function (b) {
-            var lohn = b.stundenlohn ? chf(b.stundenlohn) + "/Std." : "kein Stundenlohn hinterlegt";
-            return "<tr><td>" + escapeHtml(b.anzeigename) + '</td><td style="color:var(--tinte-2)">' + lohn +
-              '</td><td><button type="button" class="knopf" data-id="' + b.id + '" style="font-size:12px;padding:3px 10px">Bearbeiten</button></td></tr>';
-          })
-          .join("") +
-        "</tbody></table></div>";
-      elMaListe.querySelectorAll("button[data-id]").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-          var b = mitarbeiterinnen.filter(function (m) { return m.id === Number(btn.dataset.id); })[0];
-          if (b) maDialogOeffnen(b);
-        });
+  function maListeZeichnen() {
+    var ma = maMitarbeiterinnen();
+    if (!ma.length) {
+      elMaListe.innerHTML = '<p class="leer">Noch keine Mitarbeiterin angelegt.</p>';
+      return;
+    }
+    elMaListe.innerHTML =
+      '<div class="tabellenrahmen" style="margin-bottom:12px"><table class="auflistung"><thead><tr>' +
+      '<th>Name</th><th>Geburtsdatum</th><th>AHV-Nummer</th><th>Eintritt</th><th class="re">Stundenlohn</th><th></th>' +
+      "</tr></thead><tbody>" +
+      ma.map(function (b) {
+        var name = escapeHtml(b.anzeigename) +
+          (b.austritt ? ' <span class="status st-abgeholt">ausgetreten ' + datumKurz(b.austritt) + "</span>" : "");
+        var fehlt = '<span style="color:var(--tinte-3)">–</span>';
+        return '<tr' + (b.id === maPersonId ? ' class="ma-gewaehlt"' : "") + "><td>" +
+          '<button type="button" class="link-knopf" data-ma-waehlen="' + b.id + '">' + name + "</button>" +
+          (b.strasse || b.plz_ort ? '<br><small style="color:var(--tinte-2)">' + escapeHtml([b.strasse, b.plz_ort].filter(Boolean).join(", ")) + "</small>" : "") +
+          "</td><td>" + (b.geburtsdatum ? datumVoll(b.geburtsdatum) : fehlt) +
+          "</td><td>" + (b.ahv_nummer ? escapeHtml(b.ahv_nummer) : fehlt) +
+          "</td><td>" + (b.eintritt ? datumKurz(b.eintritt) : fehlt) +
+          '</td><td class="re">' + (b.stundenlohn ? chf(b.stundenlohn) : fehlt) +
+          '</td><td><button type="button" class="knopf" data-id="' + b.id + '" style="font-size:12px;padding:3px 10px">Bearbeiten</button></td></tr>';
+      }).join("") +
+      "</tbody></table></div>";
+    elMaListe.querySelectorAll("button[data-id]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var b = ma.filter(function (m) { return m.id === Number(btn.dataset.id); })[0];
+        if (b) maDialogOeffnen(b);
+      });
+    });
+    // Name anklicken = diese Person oben auswaehlen und ihre Stunden zeigen.
+    elMaListe.querySelectorAll("button[data-ma-waehlen]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        maPersonId = Number(btn.dataset.maWaehlen);
+        maPersonAuswahlZeichnen();
+        maFormulareZaehlen();
+        maAnsichtZeigen("stunden");
       });
     });
   }
@@ -1758,6 +1893,9 @@
     document.getElementById("ma-plz-ort").value = bestehende ? bestehende.plz_ort : "";
     document.getElementById("ma-ahv-nummer").value = bestehende ? bestehende.ahv_nummer : "";
     document.getElementById("ma-stundenlohn").value = bestehende && bestehende.stundenlohn ? bestehende.stundenlohn : "";
+    document.getElementById("ma-geburtsdatum").value = bestehende ? bestehende.geburtsdatum || "" : "";
+    document.getElementById("ma-eintritt").value = bestehende ? bestehende.eintritt || "" : "";
+    document.getElementById("ma-austritt").value = bestehende ? bestehende.austritt || "" : "";
     elMaFehler.hidden = true;
     elMaErfolg.hidden = true;
     elMaDialog.showModal();
@@ -1765,7 +1903,7 @@
   }
 
   document.getElementById("mitarbeiterinAnlegenKnopf").addEventListener("click", function () { maDialogOeffnen(null); });
-  document.getElementById("ma-abbrechen").addEventListener("click", function () { elMaDialog.close(); maListeLaden(); });
+  document.getElementById("ma-abbrechen").addEventListener("click", function () { elMaDialog.close(); maLaden(); });
 
   elMaKnopf.addEventListener("click", function () {
     elMaFehler.hidden = true;
@@ -1778,6 +1916,9 @@
       plz_ort: document.getElementById("ma-plz-ort").value.trim(),
       ahv_nummer: document.getElementById("ma-ahv-nummer").value.trim(),
       stundenlohn: stundenlohnText ? Number(stundenlohnText) : null,
+      geburtsdatum: document.getElementById("ma-geburtsdatum").value,
+      eintritt: document.getElementById("ma-eintritt").value,
+      austritt: document.getElementById("ma-austritt").value,
     };
 
     if (!anzeigename) {
@@ -1794,17 +1935,27 @@
           plz_ort: eingabe.plz_ort,
           ahv_nummer: eingabe.ahv_nummer,
           stundenlohn: eingabe.stundenlohn,
+          geburtsdatum: eingabe.geburtsdatum,
+          eintritt: eingabe.eintritt,
+          austritt: eingabe.austritt,
         })
       : invoke("mitarbeiterin_anlegen", { eingabe: eingabe });
 
     knopfSperren(elMaKnopf, true);
     aufruf
-      .then(function () {
+      .then(function (person) {
         elMaErfolg.textContent = maBearbeitenId
           ? "Gespeichert."
-          : "Angelegt - Stunden trägst du für sie unter „Für wen?“ ein.";
+          : "Angelegt – oben bei „Person“ ist sie jetzt ausgewählt.";
         elMaErfolg.hidden = false;
-        maListeLaden();
+        if (!maBearbeitenId) {
+          // Ab jetzt "bearbeiten" - ein zweiter Klick legt sie nicht doppelt an.
+          maPersonId = person.id;
+          maBearbeitenId = person.id;
+          elMaKnopf.textContent = "Speichern";
+          document.getElementById("ma-titel").textContent = "Mitarbeiterin bearbeiten";
+        }
+        maLaden();
       })
       .catch(function (e) {
         elMaFehler.textContent = fehlerText(e);
@@ -1816,12 +1967,194 @@
     f.addEventListener("keydown", enterLoest(function () { elMaKnopf.click(); }));
   });
 
+  // ---- Lohn ----
+  // Pro Monat mit Stunden eine Zeile (Knopf "Abrechnung" = die bisherige
+  // monatliche Lohnabrechnung als Excel), darunter die Jahreszahlen fuer
+  // Lohnausweis und AHV-Lohnbescheinigung (mitarbeiter.rs).
+  var maLohnJahr = new Date().getFullYear();
+  var elMaLohnInhalt = document.getElementById("maLohnInhalt");
+  var elThLohnFehler = document.getElementById("th-lohn-fehler");
+  var elThLohnEcho = document.getElementById("thLohnEcho");
+
+  function maLohnLaden() {
+    var p = maPersonAktuell();
+    document.getElementById("maLohnTitel").textContent = "Lohn " + maLohnJahr + " – " + p.anzeigename;
+    elThLohnFehler.hidden = true;
+    elThLohnEcho.textContent = "";
+    maHinweisSetzen(document.getElementById("maLohnHinweis"), p);
+    var exportKnopf = document.getElementById("maJahrExportKnopf");
+    exportKnopf.hidden = true;
+    if (p.rolle !== "mitarbeiterin") {
+      elMaLohnInhalt.innerHTML = '<p class="leer">Lohn wird nur für Mitarbeiterinnen berechnet – bitte oben eine Mitarbeiterin wählen.</p>';
+      return;
+    }
+    elMaLohnInhalt.innerHTML = '<p class="leer">Lade …</p>';
+    invoke("lohn_jahresuebersicht", { benutzer_id: p.id, jahr: maLohnJahr })
+      .then(function (j) {
+        if (!j.monate.length) {
+          elMaLohnInhalt.innerHTML = '<p class="leer">Keine Stunden im Jahr ' + maLohnJahr + " erfasst.</p>";
+          return;
+        }
+        exportKnopf.hidden = false;
+        var t = j.total;
+        elMaLohnInhalt.innerHTML =
+          '<div class="tabellenrahmen"><table class="auflistung lohn-tabelle"><thead><tr>' +
+          '<th>Monat</th><th class="re">Stunden</th><th class="re">Bruttolohn</th><th class="re">AHV/IV/EO</th>' +
+          '<th class="re">ALV</th><th class="re">Nettolohn</th><th></th></tr></thead><tbody>' +
+          j.monate.map(function (m) {
+            return "<tr><td>" + MONATSNAMEN_LANG[m.monat - 1] + '</td><td class="re">' + m.stunden.toLocaleString("de-CH") +
+              '</td><td class="re">' + chf(m.bruttolohn) + '</td><td class="re">' + chf(m.ahv) + '</td><td class="re">' + chf(m.alv) +
+              '</td><td class="re"><b>' + chf(m.nettolohn) + "</b></td>" +
+              '<td class="re"><button type="button" class="knopf" data-lohn-monat="' + m.monat + '" style="font-size:12px;padding:3px 10px">Abrechnung</button></td></tr>';
+          }).join("") +
+          '</tbody><tfoot><tr><td>Total</td><td class="re">' + t.stunden.toLocaleString("de-CH") +
+          '</td><td class="re">' + chf(t.bruttolohn) + '</td><td class="re">' + chf(t.ahv) + '</td><td class="re">' + chf(t.alv) +
+          '</td><td class="re">' + chf(t.nettolohn) + "</td><td></td></tr></tfoot></table></div>" +
+          '<div class="lohnausweis-kasten">' +
+          "<h3>Für den Lohnausweis " + j.jahr + " (Formular 11)</h3>" +
+          "<dl>" +
+          "<dt>Zeitraum</dt><dd>" + datumVoll(j.von) + " – " + datumVoll(j.bis) + "</dd>" +
+          "<dt>Ziffer 1 · Lohn</dt><dd>" + chf(t.bruttolohn) + "</dd>" +
+          "<dt>Ziffer 8 · Bruttolohn total</dt><dd>" + chf(t.bruttolohn) + "</dd>" +
+          "<dt>Ziffer 9 · Beiträge AHV/IV/EO/ALV</dt><dd>" + chf(t.total_abzuege) + "</dd>" +
+          "<dt>Ziffer 11 · Nettolohn</dt><dd><b>" + chf(t.nettolohn) + "</b></dd>" +
+          "</dl>" +
+          "<h3>Für die AHV-Lohnbescheinigung " + j.jahr + "</h3>" +
+          "<dl><dt>AHV-pflichtiger Lohn</dt><dd>" + chf(t.bruttolohn) + "</dd></dl>" +
+          '<p class="login-hinweis" style="margin:8px 0 0">Gerechnet mit dem heutigen Stundenlohn (' + chf(j.stundenlohn) +
+          ") und den heutigen Prozentsätzen.</p></div>";
+        elMaLohnInhalt.querySelectorAll("button[data-lohn-monat]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            var monat = Number(btn.dataset.lohnMonat);
+            elThLohnFehler.hidden = true;
+            elThLohnEcho.style.color = "var(--gruen)";
+            elThLohnEcho.textContent = "Exportiere …";
+            invoke("lohnabrechnung_exportieren", { benutzer_id: p.id, jahr: maLohnJahr, monat: monat })
+              .then(function (pfad) { elThLohnEcho.textContent = "Lohnabrechnung " + MONATSNAMEN_LANG[monat - 1] + " exportiert nach: " + pfad; })
+              .catch(function (e) { elThLohnEcho.textContent = ""; elThLohnFehler.textContent = fehlerText(e); elThLohnFehler.hidden = false; });
+          });
+        });
+      })
+      .catch(function (e) { elMaLohnInhalt.innerHTML = '<p class="leer">' + escapeHtml(fehlerText(e)) + "</p>"; });
+  }
+
+  document.getElementById("maLohnVorKnopf").addEventListener("click", function () { maLohnJahr -= 1; maLohnLaden(); });
+  document.getElementById("maLohnNachKnopf").addEventListener("click", function () { maLohnJahr += 1; maLohnLaden(); });
+  document.getElementById("maLohnHeuteKnopf").addEventListener("click", function () { maLohnJahr = new Date().getFullYear(); maLohnLaden(); });
+  document.getElementById("maJahrExportKnopf").addEventListener("click", function () {
+    elThLohnFehler.hidden = true;
+    elThLohnEcho.style.color = "var(--gruen)";
+    elThLohnEcho.textContent = "Exportiere …";
+    invoke("lohn_jahresuebersicht_exportieren", { benutzer_id: maPersonIdAktuell(), jahr: maLohnJahr })
+      .then(function (pfad) { elThLohnEcho.textContent = "Exportiert nach: " + pfad; })
+      .catch(function (e) { elThLohnEcho.textContent = ""; elThLohnFehler.textContent = fehlerText(e); elThLohnFehler.hidden = false; });
+  });
+
+  // ---- Formulare ----
+  // Was ein Arbeitgeber in der Schweiz fuer eine Mitarbeiterin anmelden und
+  // melden muss, als Checkliste. Abhaken speichert das Datum (mitarbeiter.rs);
+  // jaehrliche Meldungen gelten pro Jahr ("lohnausweis:2026").
+  var MA_FORMULARE = {
+    eintritt: [
+      ["arbeitsvertrag", "Arbeitsvertrag", "Schriftlich mit Stundenlohn, Ferienzuschlag, ungefährem Pensum und Kündigungsfrist – je ein Exemplar für beide."],
+      ["ahv_anmeldung", "Anmeldung bei der AHV-Ausgleichskasse", "Innert einem Monat nach Stellenantritt, mit AHV-Nummer und Geburtsdatum – bei der Ausgleichskasse, der das Geschäft angeschlossen ist."],
+      ["uvg", "Unfallversicherung (UVG)", "Pflicht ab der ersten Mitarbeiterin – der Versicherung melden. Nichtberufsunfall ist nur mitversichert, wenn sie mindestens 8 Stunden pro Woche arbeitet."],
+      ["familienzulagen", "Familienzulagen", "Nur wenn sie Kinder hat: Antrag über die Familienausgleichskasse (meist dieselbe Stelle wie die AHV). Betrifft es sie nicht, einfach abhaken."],
+      ["quellensteuer", "Quellensteuer", "Nur bei ausländischen Mitarbeitenden ohne Niederlassungsbewilligung C: beim kantonalen Steueramt anmelden und die Steuer vom Lohn abziehen. Sonst abhaken."],
+      ["bvg", "Pensionskasse (BVG) geprüft", "Nur nötig, wenn ihr Jahreslohn über der BVG-Eintrittsschwelle liegt (2025: CHF 22'680) – der Jahreslohn steht unter „Lohn“."],
+    ],
+    jaehrlich: [
+      ["lohnausweis", "Lohnausweis (Formular 11) abgegeben", "Bis Ende Januar für das Vorjahr. Die Zahlen (Ziffern 1, 8, 9, 11) stehen unter „Lohn“."],
+      ["ahv_lohnbescheinigung", "AHV-Lohnbescheinigung eingereicht", "Bis 30. Januar an die Ausgleichskasse: Jahreslohn pro Person (= „AHV-pflichtiger Lohn“ unter „Lohn“)."],
+      ["uvg_lohnmeldung", "Lohnsumme der Unfallversicherung gemeldet", "Anfang Jahr: die Lohnsumme des Vorjahres an die UVG-Versicherung."],
+    ],
+    austritt: [
+      ["austritt_lohnausweis", "Lohnausweis mit dem letzten Lohn abgegeben", "Bei Austritt unter dem Jahr gleich mit der letzten Lohnzahlung (Zeitraum bis zum Austritt)."],
+      ["austritt_arbeitszeugnis", "Arbeitszeugnis ausgestellt", "Sie hat Anspruch darauf – auf Wunsch nur eine Arbeitsbestätigung (Dauer und Tätigkeit)."],
+      ["austritt_meldung", "Austritt gemeldet", "Der Ausgleichskasse (wegen Familienzulagen) und – falls verlangt – der Unfallversicherung."],
+    ],
+  };
+  // Im Januar bis Maerz geht es meist um die Meldungen fuers Vorjahr.
+  var maFormJahr = new Date().getMonth() < 3 ? new Date().getFullYear() - 1 : new Date().getFullYear();
+
+  function maFormPunktHtml(eintrag, schluessel, erledigt) {
+    var am = erledigt[schluessel];
+    return '<label class="form-punkt' + (am ? " erledigt" : "") + '">' +
+      '<input type="checkbox" data-formular="' + schluessel + '"' + (am ? " checked" : "") + ">" +
+      "<span><b>" + escapeHtml(eintrag[1]) + "</b><small>" + escapeHtml(eintrag[2]) + "</small></span>" +
+      (am ? "<em>erledigt " + datumKurz(am) + "</em>" : "<em></em>") + "</label>";
+  }
+
+  function maFormLaden() {
+    var p = maPersonAktuell();
+    var elListe = document.getElementById("maFormListe");
+    document.getElementById("maFormTitel").textContent = "Formulare – " + p.anzeigename;
+    maHinweisSetzen(document.getElementById("maFormHinweis"), p);
+    if (p.rolle !== "mitarbeiterin") {
+      elListe.innerHTML = '<p class="leer">Formulare gibt es nur für Mitarbeiterinnen – bitte oben eine Mitarbeiterin wählen.</p>';
+      return;
+    }
+    invoke("formulare_lesen", { benutzer_id: p.id })
+      .then(function (liste) {
+        var erledigt = {};
+        liste.forEach(function (f) { erledigt[f.formular] = f.erledigt_am; });
+        var jahrOptionen = [];
+        for (var j = new Date().getFullYear(); j >= new Date().getFullYear() - 3; j--) {
+          jahrOptionen.push('<option value="' + j + '"' + (j === maFormJahr ? " selected" : "") + ">" + j + "</option>");
+        }
+        elListe.innerHTML =
+          '<h3 class="form-gruppe">Bei Eintritt <small>einmalig</small></h3>' +
+          MA_FORMULARE.eintritt.map(function (e) { return maFormPunktHtml(e, e[0], erledigt); }).join("") +
+          '<h3 class="form-gruppe">Jedes Jahr im Januar <small>für das Jahr <select id="maFormJahr">' + jahrOptionen.join("") + "</select></small></h3>" +
+          MA_FORMULARE.jaehrlich.map(function (e) { return maFormPunktHtml(e, e[0] + ":" + maFormJahr, erledigt); }).join("") +
+          (p.austritt
+            ? '<h3 class="form-gruppe">Bei Austritt <small>' + datumKurz(p.austritt) + "</small></h3>" +
+              MA_FORMULARE.austritt.map(function (e) { return maFormPunktHtml(e, e[0], erledigt); }).join("")
+            : '<p class="login-hinweis" style="margin-top:16px">Bei einer Kündigung unter „Personalien“ den Austritt eintragen – dann erscheint hier, was dabei zu tun ist.</p>');
+        document.getElementById("maFormJahr").addEventListener("change", function (ev) {
+          maFormJahr = Number(ev.target.value);
+          maFormLaden();
+        });
+        elListe.querySelectorAll("input[data-formular]").forEach(function (cb) {
+          cb.addEventListener("change", function () {
+            cb.disabled = true;
+            invoke("formular_setzen", { benutzer_id: p.id, formular: cb.dataset.formular, erledigt: cb.checked })
+              .then(function () { maFormLaden(); maFormulareZaehlen(); })
+              .catch(function (e) { cb.checked = !cb.checked; cb.disabled = false; alert(fehlerText(e)); });
+          });
+        });
+      })
+      .catch(function (e) { elListe.innerHTML = '<p class="leer">' + escapeHtml(fehlerText(e)) + "</p>"; });
+  }
+
+  // Zahl am Unterreiter "Formulare": offene Punkte bei Eintritt, ab Januar
+  // bis Maerz dazu die Jahresmeldungen fuers Vorjahr.
+  function maFormulareZaehlen() {
+    var el = document.getElementById("maFormulareOffen");
+    var p = maPersonAktuell();
+    if (!istInhaber() || p.rolle !== "mitarbeiterin") { el.hidden = true; return; }
+    invoke("formulare_lesen", { benutzer_id: p.id })
+      .then(function (liste) {
+        var erledigt = {};
+        liste.forEach(function (f) { erledigt[f.formular] = true; });
+        var offen = MA_FORMULARE.eintritt.filter(function (e) { return !erledigt[e[0]]; }).length;
+        var heute = new Date();
+        if (heute.getMonth() < 3) {
+          offen += MA_FORMULARE.jaehrlich.filter(function (e) { return !erledigt[e[0] + ":" + (heute.getFullYear() - 1)]; }).length;
+        }
+        if (p.austritt) offen += MA_FORMULARE.austritt.filter(function (e) { return !erledigt[e[0]]; }).length;
+        el.textContent = offen;
+        el.hidden = !offen;
+        el.title = offen + " offen";
+      })
+      .catch(function () { el.hidden = true; });
+  }
+
   // ================= TREUHAND =================
   // Geschaeftsausgaben erfassen (feste Kategorie-Liste, siehe treuhand.rs)
   // und daraus den jaehrlichen Einnahmen/Ausgaben-Bericht fuer die Treuhand
   // exportieren - ersetzt Stefans bisherige "Treuhand - Umsatz"-Excel.
-  // Dazu die monatliche Lohnabrechnung einer Mitarbeiterin, berechnet aus
-  // den schon erfassten Stunden und ihrem hinterlegten Stundenlohn.
+  // (Die Lohnabrechnung ist in den Reiter "Mitarbeiter" umgezogen.)
   var thJahr = new Date().getFullYear();
   var elThListe = document.getElementById("thListe");
   var elThKategorie = document.getElementById("th-kategorie");
@@ -1875,20 +2208,6 @@
       });
     }
     document.getElementById("th-datum").value = datumHeute();
-
-    invoke("alle_benutzer").then(function (benutzer) {
-      var mitarbeiterinnen = benutzer.filter(function (b) { return b.rolle === "mitarbeiterin"; });
-      var elPerson = document.getElementById("th-lohn-person");
-      elPerson.innerHTML = mitarbeiterinnen.length
-        ? mitarbeiterinnen.map(function (b) { return '<option value="' + b.id + '">' + escapeHtml(b.anzeigename) + "</option>"; }).join("")
-        : '<option value="">(keine Mitarbeiterin angelegt)</option>';
-    });
-    var elLohnMonat = document.getElementById("th-lohn-monat");
-    if (!elLohnMonat.options.length) {
-      elLohnMonat.innerHTML = MONATSNAMEN.map(function (name, i) { return '<option value="' + (i + 1) + '">' + name + "</option>"; }).join("");
-      elLohnMonat.value = new Date().getMonth() + 1;
-    }
-    document.getElementById("th-lohn-jahr").value = thJahr;
   }
 
   document.getElementById("thVorKnopf").addEventListener("click", function () { thJahr -= 1; thJahrLaden(); });
@@ -1949,25 +2268,6 @@
     invoke("treuhand_bericht_exportieren", { jahr: thJahr })
       .then(function (pfad) { echo.textContent = "Exportiert nach: " + pfad; })
       .catch(function (e) { echo.textContent = fehlerText(e); echo.style.color = "var(--faden)"; });
-  });
-
-  document.getElementById("th-lohn-exportieren").addEventListener("click", function () {
-    var elFehler = document.getElementById("th-lohn-fehler");
-    elFehler.hidden = true;
-    var benutzerId = Number(document.getElementById("th-lohn-person").value);
-    if (!benutzerId) {
-      elFehler.textContent = "Bitte zuerst eine Mitarbeiterin anlegen.";
-      elFehler.hidden = false;
-      return;
-    }
-    var monat = Number(document.getElementById("th-lohn-monat").value);
-    var jahr = Number(document.getElementById("th-lohn-jahr").value);
-    var echo = document.getElementById("thLohnEcho");
-    echo.style.color = "var(--gruen)";
-    echo.textContent = "Exportiere …";
-    invoke("lohnabrechnung_exportieren", { benutzer_id: benutzerId, jahr: jahr, monat: monat })
-      .then(function (pfad) { echo.textContent = "Exportiert nach: " + pfad; })
-      .catch(function (e) { echo.textContent = ""; elFehler.textContent = fehlerText(e); elFehler.hidden = false; });
   });
 
   // ================= AUSGABEN IMPORTIEREN =================
@@ -2460,6 +2760,7 @@
         aktuelleEinstellungen = neu;
         elErfolg.textContent = "Gespeichert.";
         elErfolg.hidden = false;
+        if (maAnsicht === "lohn") maLohnLaden();
       })
       .catch(function (e) { elFehler.textContent = fehlerText(e); elFehler.hidden = false; })
       .finally(function () { knopfSperren(knopf, false); });
@@ -3008,8 +3309,8 @@
       if (t.id === "r-start") uebersichtLaden();
       if (t.id === "r-auftraege") auListeLaden();
       if (t.id === "r-preisliste") plLaden();
-      if (t.id === "r-monat") { monatLaden(); maListeLaden(); }
-      if (t.id === "r-stunden") stMonatLaden();
+      if (t.id === "r-monat") monatLaden();
+      if (t.id === "r-stunden") maLaden();
       if (t.id === "r-treuhand") thLaden();
     });
   });

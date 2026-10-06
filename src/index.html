@@ -108,7 +108,7 @@
       <button role="tab" id="r-treuhand" aria-selected="false" aria-controls="t-treuhand">Treuhand</button>
       <span class="reiter-gruppe">Verwaltung</span>
       <button role="tab" id="r-preisliste" aria-selected="false" aria-controls="t-preisliste">Preisliste</button>
-      <button role="tab" id="r-stunden" aria-selected="false" aria-controls="t-stunden">Stunden</button>
+      <button role="tab" id="r-stunden" aria-selected="false" aria-controls="t-stunden">Mitarbeiter</button>
       <button role="tab" id="r-einstellungen" aria-selected="false" aria-controls="t-einstellungen">Einstellungen</button>
     </div>
     <div class="kopf-benutzer">
@@ -237,14 +237,33 @@
       </div>
     </section>
 
-    <!-- ============ STUNDEN ============ -->
-    <!-- Bewusst ein eigener Reiter, getrennt von "Arbeiten" - Stefans
-         Wunsch: das Erfassen der eigenen Stunden soll nicht mit den Kunden
-         vermischt werden. -->
+    <!-- ============ MITARBEITER ============ -->
+    <!-- Alles, was Papa als Arbeitgeber fuer eine Mitarbeiterin eintragen
+         muss, an einem Ort: Stunden, Personalien, Lohn und die Formulare.
+         Bewusst getrennt von "Kunden" (Stefans Wunsch: Stunden nicht mit
+         den Kunden vermischen). Die ids "t-stunden"/"r-stunden" bleiben. -->
     <section id="t-stunden" role="tabpanel" aria-labelledby="r-stunden" hidden>
       <div class="tafel">
+        <div class="tafel-kopf ma-kopf">
+          <div>
+            <h2>Mitarbeiter</h2>
+            <p>Stunden, Personalien, Lohn und alle Formulare an einem Ort</p>
+          </div>
+          <label class="feld ma-person" id="maPersonZeile"><span>Person</span><select id="maPerson"></select></label>
+        </div>
+        <div class="unterreiter" role="tablist" aria-label="Mitarbeiter" id="maUnterreiter">
+          <button type="button" role="tab" data-ma-ansicht="stunden" aria-selected="true">Stunden</button>
+          <button type="button" role="tab" data-ma-ansicht="personalien" aria-selected="false">Personalien</button>
+          <button type="button" role="tab" data-ma-ansicht="lohn" aria-selected="false">Lohn</button>
+          <button type="button" role="tab" data-ma-ansicht="formulare" aria-selected="false">Formulare <span class="unterreiter-zahl warn" id="maFormulareOffen" hidden></span></button>
+        </div>
+      </div>
+
+      <!-- ---- Stunden ---- -->
+      <div data-ma-teil="stunden">
+      <div class="tafel" style="margin-top:20px">
         <div class="tafel-kopf">
-          <h2>Stunden erfassen</h2>
+          <h2 id="stErfassenTitel">Stunden erfassen</h2>
           <p>Vormittag und/oder Nachmittag - wie gewohnt, Stunden werden automatisch berechnet</p>
         </div>
         <div class="abschnitt">
@@ -277,7 +296,7 @@
       <div class="tafel" style="margin-top:20px">
         <div class="tafel-kopf">
           <h2 id="stMonatTitel">Dieser Monat</h2>
-          <p>Deine eigenen Stunden</p>
+          <p id="stPersonText">Deine eigenen Stunden</p>
         </div>
         <div class="abschnitt">
           <div class="knopfreihe" style="margin-top:0">
@@ -291,14 +310,92 @@
 
       <div class="tafel" id="stAlleTafel" style="margin-top:20px">
         <div class="tafel-kopf">
-          <h2>Alle Mitarbeiterinnen</h2>
-          <p>Übersicht für die Abrechnung - die eigentliche Lohnberechnung passiert weiterhin in Excel</p>
+          <h2>Alle zusammen</h2>
+          <p>Stunden aller Personen in diesem Monat</p>
         </div>
         <div class="abschnitt knopfreihe" style="margin-top:0">
           <button class="knopf" id="treuhandExportKnopf">Für Treuhand exportieren</button>
           <span id="treuhandExportEcho" style="font-size:13px;color:var(--gruen);font-weight:600;"></span>
         </div>
         <div class="abschnitt" id="stAlleListe"></div>
+      </div>
+      </div>
+
+      <!-- ---- Personalien ---- -->
+      <div data-ma-teil="personalien" hidden>
+      <div class="tafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2>Mitarbeiterinnen</h2>
+          <p>Adresse, AHV-Nummer, Geburtsdatum, Eintritt und Stundenlohn - braucht es für Lohnabrechnung, Lohnausweis und AHV</p>
+        </div>
+        <div class="abschnitt">
+          <div id="maListe"></div>
+          <p class="login-hinweis" style="max-width:62ch">
+            Kein Login, kein Zugang zum Programm: Ihre Stunden trägst du selbst ein
+            (oben bei „Person“ auswählen, dann unter „Stunden“).
+          </p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="mitarbeiterinAnlegenKnopf">+ Mitarbeiterin anlegen</button>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <!-- ---- Lohn ---- -->
+      <div data-ma-teil="lohn" hidden>
+      <div class="tafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2 id="maLohnTitel">Lohn</h2>
+          <p>Aus den erfassten Stunden und dem Stundenlohn berechnet – pro Monat die Lohnabrechnung, unten die Zahlen fürs Jahr</p>
+        </div>
+        <div class="abschnitt">
+          <div class="knopfreihe" style="margin-top:0">
+            <button class="knopf" id="maLohnVorKnopf">‹ Vorjahr</button>
+            <button class="knopf" id="maLohnHeuteKnopf">Dieses Jahr</button>
+            <button class="knopf" id="maLohnNachKnopf">Nächstes Jahr ›</button>
+          </div>
+          <p id="maLohnHinweis" class="ma-hinweis" hidden></p>
+          <div id="maLohnInhalt" style="margin-top:12px"></div>
+          <p id="th-lohn-fehler" class="login-fehler" hidden></p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="maJahrExportKnopf">Jahresübersicht exportieren (Excel)</button>
+            <span id="thLohnEcho" style="font-size:13px;color:var(--gruen);font-weight:600;"></span>
+          </div>
+        </div>
+      </div>
+      <!-- Lohn-Prozentsaetze: frueher unter Einstellungen -->
+      <div class="tafel" id="eiLohnTafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2>Lohn-Prozentsätze</h2>
+          <p>Gelten für alle Lohnabrechnungen - ändern sich gelegentlich von Jahr zu Jahr</p>
+        </div>
+        <div class="abschnitt">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            <label class="feld" style="margin-top:0"><span>Ferienzuschlag (%)</span><input id="ei-lohn-ferienzuschlag" type="number" step="0.01" min="0" max="100"></label>
+            <label class="feld" style="margin-top:0"><span>AHV/IV/EO (%)</span><input id="ei-lohn-ahv" type="number" step="0.01" min="0" max="100"></label>
+            <label class="feld" style="margin-top:0"><span>ALV (%)</span><input id="ei-lohn-alv" type="number" step="0.01" min="0" max="100"></label>
+          </div>
+          <p id="ei-lohn-fehler" class="login-fehler" hidden></p>
+          <p id="ei-lohn-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
+          <div class="knopfreihe">
+            <button class="knopf knopf-voll" id="eiLohnKnopf">Speichern</button>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <!-- ---- Formulare ---- -->
+      <div data-ma-teil="formulare" hidden>
+      <div class="tafel" style="margin-top:20px">
+        <div class="tafel-kopf">
+          <h2 id="maFormTitel">Formulare</h2>
+          <p>Was du als Arbeitgeber anmelden und melden musst – abhaken, sobald erledigt (das Datum wird gespeichert)</p>
+        </div>
+        <div class="abschnitt">
+          <p id="maFormHinweis" class="ma-hinweis" hidden></p>
+          <div id="maFormListe"></div>
+        </div>
+      </div>
       </div>
     </section>
 
@@ -342,19 +439,6 @@
           <div class="knopfreihe">
             <button class="knopf knopf-voll" id="sicherungKnopf">Jetzt sichern</button>
             <span id="sicherungEcho" style="font-size:13px;color:var(--gruen);font-weight:600;"></span>
-          </div>
-        </div>
-
-        <div class="abschnitt">
-          <h3>Mitarbeiterin anlegen</h3>
-          <p style="margin-top:0;font-size:14px;color:var(--tinte-2);max-width:60ch;">
-            Legt ein Lohnprofil an (für die Treuhand-Lohnabrechnung, Reiter „Treuhand") — kein
-            Login, kein Zugang zum Programm. Ihre Stunden trägst du selbst ein (über „Für wen?"
-            bei Stunden erfassen/importieren).
-          </p>
-          <div id="maListe"></div>
-          <div class="knopfreihe">
-            <button class="knopf knopf-voll" id="mitarbeiterinAnlegenKnopf">+ Mitarbeiterin anlegen</button>
           </div>
         </div>
       </div>
@@ -409,24 +493,9 @@
         </div>
       </div>
 
-      <div class="tafel" style="margin-top:20px">
-        <div class="tafel-kopf">
-          <h2>Lohnabrechnung</h2>
-          <p>Berechnet aus den bereits erfassten Stunden einer Mitarbeiterin und ihrem hinterlegten Stundenlohn</p>
-        </div>
-        <div class="abschnitt">
-          <div class="zeit-erfassen-zeile">
-            <label class="feld" style="margin-top:0"><span>Mitarbeiterin</span><select id="th-lohn-person"></select></label>
-            <label class="feld" style="margin-top:0"><span>Monat</span><select id="th-lohn-monat"></select></label>
-            <label class="feld" style="margin-top:0;width:100px"><span>Jahr</span><input id="th-lohn-jahr" type="number"></label>
-          </div>
-          <p id="th-lohn-fehler" class="login-fehler" hidden></p>
-          <div class="knopfreihe">
-            <button class="knopf knopf-voll" id="th-lohn-exportieren">Lohnabrechnung exportieren</button>
-            <span id="thLohnEcho" style="font-size:13px;color:var(--gruen);font-weight:600;"></span>
-          </div>
-        </div>
-      </div>
+      <p class="login-hinweis" style="margin:14px 4px 0">
+        Lohnabrechnungen und die Zahlen für den Lohnausweis findest du jetzt im Reiter „Mitarbeiter“ unter „Lohn“.
+      </p>
     </section>
 
     <!-- ============ PREISLISTE ============ -->
@@ -583,25 +652,6 @@
         </div>
       </div>
 
-      <div class="tafel" id="eiLohnTafel" style="margin-top:20px">
-        <div class="tafel-kopf">
-          <h2>Lohn-Prozentsätze</h2>
-          <p>Für die automatische Lohnabrechnung (Reiter „Treuhand") - ändern sich gelegentlich von Jahr zu Jahr</p>
-        </div>
-        <div class="abschnitt">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-            <label class="feld" style="margin-top:0"><span>Ferienzuschlag (%)</span><input id="ei-lohn-ferienzuschlag" type="number" step="0.01" min="0" max="100"></label>
-            <label class="feld" style="margin-top:0"><span>AHV/IV/EO (%)</span><input id="ei-lohn-ahv" type="number" step="0.01" min="0" max="100"></label>
-            <label class="feld" style="margin-top:0"><span>ALV (%)</span><input id="ei-lohn-alv" type="number" step="0.01" min="0" max="100"></label>
-          </div>
-          <p id="ei-lohn-fehler" class="login-fehler" hidden></p>
-          <p id="ei-lohn-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>
-          <div class="knopfreihe">
-            <button class="knopf knopf-voll" id="eiLohnKnopf">Speichern</button>
-          </div>
-        </div>
-      </div>
-
       <div class="tafel" style="margin-top:20px">
         <div class="tafel-kopf">
           <h2>Import &amp; Export</h2>
@@ -700,10 +750,15 @@
     <label class="feld"><span>Strasse</span><input id="ma-strasse"></label>
     <label class="feld"><span>PLZ, Wohnort</span><input id="ma-plz-ort"></label>
     <label class="feld"><span>AHV-Nummer</span><input id="ma-ahv-nummer" placeholder="756.XXXX.XXXX.XX"></label>
+    <label class="feld"><span>Geburtsdatum (für Lohnausweis)</span><input id="ma-geburtsdatum" type="date"></label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <label class="feld"><span>Eintritt</span><input id="ma-eintritt" type="date"></label>
+      <label class="feld"><span>Austritt (falls gekündigt)</span><input id="ma-austritt" type="date"></label>
+    </div>
     <label class="feld"><span>Stundenlohn (CHF, für die Lohnabrechnung)</span><input id="ma-stundenlohn" type="number" step="0.01" min="0"></label>
     <p class="login-hinweis">
-      Kein eigener Login - du trägst ihre Stunden selbst ein (über „Für wen?“ bei
-      Stunden erfassen/importieren), sie braucht das Programm nie zu öffnen.
+      Kein eigener Login - du trägst ihre Stunden selbst ein (Reiter „Mitarbeiter“,
+      oben bei „Person“ auswählen), sie braucht das Programm nie zu öffnen.
     </p>
     <p id="ma-fehler" class="login-fehler" hidden></p>
     <p id="ma-erfolg" class="login-fehler" style="color:var(--gruen)" hidden></p>

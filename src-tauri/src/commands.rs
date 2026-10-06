@@ -5,6 +5,7 @@
 use crate::auftraege::{self, AuftragZeile, NeueAnnahme, Uebersicht};
 use crate::auth::{self, Benutzer, NeueMitarbeiterin};
 use crate::einstellungen::{self, Einstellungen};
+use crate::mitarbeiter::{self, FormularStatus, LohnJahr};
 use crate::geschaeft::{self, Auftrag, KundeBearbeiten, Kunde, NeuerAuftrag, NeuerKunde, Posten};
 use crate::preisliste::{self, NeuerPreisEintrag, PreisEintrag, PreislisteImport};
 use crate::quittung;
@@ -68,6 +69,7 @@ pub fn mitarbeiterin_anlegen(zustand: State<AppZustand>, eingabe: NeueMitarbeite
     // Bewusst ohne Login - Stefan braucht das nicht, er traegt ihre Stunden
     // selbst ein (ueber "Fuer wen?"). Nur ein Lohnprofil fuer die Treuhand-
     // Lohnabrechnung (treuhand.rs).
+    mitarbeiter::personalien_pruefen(&eingabe.geburtsdatum, &eingabe.eintritt, &eingabe.austritt).map_err(|e| e.to_string())?;
     auth::mitarbeiterin_anlegen(&conn, &eingabe).map_err(|e| e.to_string())
 }
 
@@ -80,10 +82,22 @@ pub fn mitarbeiterin_profil_aktualisieren(
     plz_ort: String,
     ahv_nummer: String,
     stundenlohn: Option<f64>,
+    // Personalien (Reiter "Mitarbeiter") - fehlen sie im Aufruf, bleiben
+    // die gespeicherten Werte unveraendert.
+    geburtsdatum: Option<String>,
+    eintritt: Option<String>,
+    austritt: Option<String>,
 ) -> Antwort<Benutzer> {
     let conn = verbindung_sperren(&zustand);
+    if let (Some(g), Some(e), Some(a)) = (&geburtsdatum, &eintritt, &austritt) {
+        mitarbeiter::personalien_pruefen(g, e, a).map_err(|e| e.to_string())?;
+    }
     auth::mitarbeiterin_profil_aktualisieren(&conn, benutzer_id, &anzeigename, &strasse, &plz_ort, &ahv_nummer, stundenlohn)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    if let (Some(g), Some(e), Some(a)) = (geburtsdatum, eintritt, austritt) {
+        mitarbeiter::personalien_setzen(&conn, benutzer_id, &g, &e, &a).map_err(|e| e.to_string())?;
+    }
+    auth::benutzer_holen(&conn, benutzer_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -271,6 +285,32 @@ pub fn treuhand_bericht_exportieren(zustand: State<AppZustand>, jahr: i32) -> An
 pub fn lohnabrechnung_exportieren(zustand: State<AppZustand>, benutzer_id: i64, jahr: i32, monat: u32) -> Antwort<String> {
     let conn = verbindung_sperren(&zustand);
     treuhand::lohnabrechnung_exportieren(&conn, benutzer_id, jahr, monat).map(|p| p.display().to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn lohn_jahresuebersicht(zustand: State<AppZustand>, benutzer_id: i64, jahr: i32) -> Antwort<LohnJahr> {
+    let conn = verbindung_sperren(&zustand);
+    mitarbeiter::lohn_jahresuebersicht(&conn, benutzer_id, jahr).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn lohn_jahresuebersicht_exportieren(zustand: State<AppZustand>, benutzer_id: i64, jahr: i32) -> Antwort<String> {
+    let conn = verbindung_sperren(&zustand);
+    mitarbeiter::lohn_jahresuebersicht_exportieren(&conn, benutzer_id, jahr)
+        .map(|p| p.display().to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn formulare_lesen(zustand: State<AppZustand>, benutzer_id: i64) -> Antwort<Vec<FormularStatus>> {
+    let conn = verbindung_sperren(&zustand);
+    mitarbeiter::formulare_lesen(&conn, benutzer_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn formular_setzen(zustand: State<AppZustand>, benutzer_id: i64, formular: String, erledigt: bool) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    mitarbeiter::formular_setzen(&conn, benutzer_id, &formular, erledigt).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]

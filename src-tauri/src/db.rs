@@ -158,6 +158,17 @@ fn schema_anlegen(conn: &Connection) -> rusqlite::Result<()> {
             aktiv       INTEGER NOT NULL DEFAULT 1,
             erstellt_am TEXT NOT NULL DEFAULT (datetime('now'))
         );
+
+        -- Checkliste "Formulare" pro Mitarbeiterin (Reiter "Mitarbeiter"):
+        -- welche Anmeldung/Meldung schon erledigt ist. Jaehrliche Meldungen
+        -- tragen das Jahr im Schluessel (z.B. "lohnausweis:2026"). Nicht
+        -- erledigt = keine Zeile.
+        CREATE TABLE IF NOT EXISTS mitarbeiter_formulare (
+            benutzer_id INTEGER NOT NULL REFERENCES benutzer(id),
+            formular    TEXT NOT NULL,
+            erledigt_am TEXT NOT NULL,
+            PRIMARY KEY (benutzer_id, formular)
+        );
         "#,
     )?;
     migrationen_anwenden(conn)
@@ -188,6 +199,11 @@ fn migrationen_anwenden(conn: &Connection) -> rusqlite::Result<()> {
         // (siehe Stefans Wunsch "kein Login gar nix" fuer eine
         // Mitarbeiterin, deren Stunden er selbst eintraegt).
         ("hat_login", "INTEGER NOT NULL DEFAULT 1"),
+        // Personalien fuer Lohnausweis und AHV-Anmeldung (Reiter
+        // "Mitarbeiter"), je "JJJJ-MM-TT" oder leer.
+        ("geburtsdatum", "TEXT NOT NULL DEFAULT ''"),
+        ("eintritt", "TEXT NOT NULL DEFAULT ''"),
+        ("austritt", "TEXT NOT NULL DEFAULT ''"),
     ];
     // Beleg (Foto/PDF der Quittung) zu einer Ausgabe - siehe Stefans
     // Wunsch, beim Erfassen gleich eine Datei dazu ablegen zu koennen.
@@ -273,6 +289,32 @@ mod tests {
         }
 
         // Ein zweiter Start darf nichts mehr veraendern oder abbrechen.
+        schema_anlegen(&conn).unwrap();
+    }
+
+    // Bestehende Konten aus einer frueheren Version (ohne Personalien-
+    // Spalten) bleiben beim Update vollstaendig erhalten, die neuen Felder
+    // sind einfach leer.
+    #[test]
+    fn bestehende_mitarbeiterin_behaelt_ihr_lohnprofil_bei_der_migration() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE benutzer (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, benutzername TEXT NOT NULL UNIQUE, anzeigename TEXT NOT NULL,
+                passwort_hash TEXT NOT NULL, rolle TEXT NOT NULL DEFAULT 'inhaber',
+                erstellt_am TEXT NOT NULL DEFAULT (datetime('now')),
+                strasse TEXT NOT NULL DEFAULT '', plz_ort TEXT NOT NULL DEFAULT '', ahv_nummer TEXT NOT NULL DEFAULT '',
+                stundenlohn REAL, hat_login INTEGER NOT NULL DEFAULT 1);
+             INSERT INTO benutzer (benutzername, anzeigename, passwort_hash, rolle, ahv_nummer, stundenlohn, hat_login)
+                VALUES ('m1', 'Erika Muster', 'x', 'mitarbeiterin', '756.1234.5678.97', 24.66, 0);",
+        )
+        .unwrap();
+
+        schema_anlegen(&conn).unwrap();
+
+        let b = crate::auth::benutzer_holen(&conn, 1).unwrap();
+        assert_eq!((b.anzeigename.as_str(), b.ahv_nummer.as_str(), b.stundenlohn), ("Erika Muster", "756.1234.5678.97", Some(24.66)));
+        assert_eq!((b.geburtsdatum.as_str(), b.eintritt.as_str(), b.austritt.as_str()), ("", "", ""));
         schema_anlegen(&conn).unwrap();
     }
 }

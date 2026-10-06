@@ -5,6 +5,7 @@ mod datei;
 mod db;
 mod einstellungen;
 mod geschaeft;
+mod mitarbeiter;
 mod preisliste;
 mod quittung;
 mod sicherung;
@@ -82,6 +83,10 @@ pub fn run() {
             commands::beleg_oeffnen,
             commands::treuhand_bericht_exportieren,
             commands::lohnabrechnung_exportieren,
+            commands::lohn_jahresuebersicht,
+            commands::lohn_jahresuebersicht_exportieren,
+            commands::formulare_lesen,
+            commands::formular_setzen,
             commands::quittung_als_pdf_oeffnen,
             commands::quittung_logo_setzen,
             commands::quittung_logo_entfernen,

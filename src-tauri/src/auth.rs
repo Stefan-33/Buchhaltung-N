@@ -25,6 +25,14 @@ pub struct Benutzer {
     // false = reines Lohn-Profil, kann sich nicht anmelden (siehe
     // mitarbeiterin_anlegen) - Stefan traegt deren Stunden selbst ein.
     pub hat_login: bool,
+    // Personalien fuer Lohnausweis/AHV-Anmeldung (mitarbeiter.rs), je
+    // "JJJJ-MM-TT" oder leer.
+    #[serde(default)]
+    pub geburtsdatum: String,
+    #[serde(default)]
+    pub eintritt: String,
+    #[serde(default)]
+    pub austritt: String,
 }
 
 /// Eingabe fuer "Mitarbeiterin anlegen" - deckt gleich das ganze
@@ -43,9 +51,16 @@ pub struct NeueMitarbeiterin {
     pub ahv_nummer: String,
     #[serde(default)]
     pub stundenlohn: Option<f64>,
+    #[serde(default)]
+    pub geburtsdatum: String,
+    #[serde(default)]
+    pub eintritt: String,
+    #[serde(default)]
+    pub austritt: String,
 }
 
-const BENUTZER_SPALTEN: &str = "id, benutzername, anzeigename, rolle, strasse, plz_ort, ahv_nummer, stundenlohn, hat_login";
+const BENUTZER_SPALTEN: &str =
+    "id, benutzername, anzeigename, rolle, strasse, plz_ort, ahv_nummer, stundenlohn, hat_login, geburtsdatum, eintritt, austritt";
 
 fn zeile_zu_benutzer(z: &Row) -> rusqlite::Result<Benutzer> {
     Ok(Benutzer {
@@ -58,6 +73,9 @@ fn zeile_zu_benutzer(z: &Row) -> rusqlite::Result<Benutzer> {
         ahv_nummer: z.get(6)?,
         stundenlohn: z.get(7)?,
         hat_login: z.get::<_, i64>(8)? != 0,
+        geburtsdatum: z.get(9)?,
+        eintritt: z.get(10)?,
+        austritt: z.get(11)?,
     })
 }
 
@@ -154,9 +172,12 @@ pub fn konto_anlegen(
 }
 
 pub fn anmelden(conn: &Connection, benutzername: &str, passwort: &str) -> Result<Benutzer, AuthFehler> {
+    // passwort_hash steht direkt nach den BENUTZER_SPALTEN - die Stelle
+    // daraus abgeleitet, damit sie bei einer neuen Spalte mitwandert.
+    let hash_stelle = BENUTZER_SPALTEN.split(',').count();
     let sql = format!("SELECT {BENUTZER_SPALTEN}, passwort_hash FROM benutzer WHERE benutzername = ?1");
     let treffer: Option<(Benutzer, String)> = conn
-        .query_row(&sql, [benutzername], |z| Ok((zeile_zu_benutzer(z)?, z.get(9)?)))
+        .query_row(&sql, [benutzername], |z| Ok((zeile_zu_benutzer(z)?, z.get(hash_stelle)?)))
         .optional()?;
 
     match treffer {
@@ -193,8 +214,9 @@ pub fn mitarbeiterin_anlegen(conn: &Connection, eingabe: &NeueMitarbeiterin) -> 
     let hash = passwort_hashen(&zufallstext("pw"))?;
 
     let ergebnis = conn.execute(
-        "INSERT INTO benutzer (benutzername, anzeigename, passwort_hash, rolle, strasse, plz_ort, ahv_nummer, stundenlohn, hat_login)
-         VALUES (?1, ?2, ?3, 'mitarbeiterin', ?4, ?5, ?6, ?7, 0)",
+        "INSERT INTO benutzer (benutzername, anzeigename, passwort_hash, rolle, strasse, plz_ort, ahv_nummer, stundenlohn, hat_login,
+                               geburtsdatum, eintritt, austritt)
+         VALUES (?1, ?2, ?3, 'mitarbeiterin', ?4, ?5, ?6, ?7, 0, ?8, ?9, ?10)",
         rusqlite::params![
             benutzername,
             anzeigename,
@@ -203,6 +225,9 @@ pub fn mitarbeiterin_anlegen(conn: &Connection, eingabe: &NeueMitarbeiterin) -> 
             eingabe.plz_ort.trim(),
             eingabe.ahv_nummer.trim(),
             eingabe.stundenlohn,
+            eingabe.geburtsdatum.trim(),
+            eingabe.eintritt.trim(),
+            eingabe.austritt.trim(),
         ],
     );
     match ergebnis {
@@ -278,6 +303,9 @@ mod tests {
             plz_ort: "".into(),
             ahv_nummer: "".into(),
             stundenlohn: None,
+            geburtsdatum: "".into(),
+            eintritt: "".into(),
+            austritt: "".into(),
         }
     }
 
