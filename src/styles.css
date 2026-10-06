@@ -429,3 +429,4 @@ tr.ma-gewaehlt > td{background:var(--gruen-matt);}
 .thi-kontrolle .tabellenrahmen{max-height:280px;overflow:auto;}
 tr.thi-warn > td{background:var(--faden-matt);}
 .thi-kontrolle table.auflistung{min-width:0;width:100%;}
+.aktionen{display:inline-flex;gap:4px;white-space:nowrap;}

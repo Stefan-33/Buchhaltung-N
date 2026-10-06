@@ -892,6 +892,21 @@
   var abrechnenAuftrag = null; // laufender Auftrag, der gerade abgerechnet wird (sonst: neuer Auftrag)
   var blattAnsicht = "neu"; // Unterreiter im Kundenblatt: "neu", "laufend" oder "verlauf"
 
+  // Auftragsschein (wie die Rechnung, Titel "Auftrag") fuer einen noch
+  // nicht abgeholten Auftrag als PDF oeffnen - zum Ausdrucken bei der
+  // Annahme. Holt Kundin und Auftrag frisch, damit der Schein stimmt.
+  function auftragsscheinDrucken(auftragId, kundeId, knopf) {
+    knopfSperren(knopf, true);
+    return Promise.all([invoke("kunde_holen", { id: kundeId }), invoke("auftraege_von_kunde", { kunde_id: kundeId })])
+      .then(function (e) {
+        var auftrag = e[1].filter(function (a) { return a.id === auftragId; })[0];
+        if (!auftrag) throw "Auftrag nicht gefunden.";
+        return invoke("quittung_als_pdf_oeffnen", { auftrag: auftrag, kunde: e[0] });
+      })
+      .catch(function (e) { alert(fehlerText(e)); })
+      .finally(function () { knopfSperren(knopf, false); });
+  }
+
   function abrechnenStarten(a) {
     abrechnenAuftrag = a;
     blattAnsicht = "neu";
@@ -1008,7 +1023,8 @@
           '<td class="re">' + chf(a.summe) + "</td>" +
           '<td class="re">' + (inArbeit
             ? '<span style="font-size:12px;color:var(--tinte-2)">wird abgerechnet</span>'
-            : '<button type="button" class="knopf knopf-voll knopf-klein" data-abrechnen="' + a.id + '">Abrechnen</button>') +
+            : '<button type="button" class="knopf knopf-klein" data-schein="' + a.id + '" title="Auftragsschein drucken">🖨 Auftrag</button> ' +
+              '<button type="button" class="knopf knopf-voll knopf-klein" data-abrechnen="' + a.id + '">Abrechnen</button>') +
           "</td></tr>"
         );
       })
@@ -1168,6 +1184,9 @@
         });
     }
 
+    elBlatt.querySelectorAll("[data-schein]").forEach(function (b) {
+      b.addEventListener("click", function () { auftragsscheinDrucken(Number(b.dataset.schein), aktuellerKunde.id, b); });
+    });
     elBlatt.querySelectorAll("[data-abrechnen]").forEach(function (b) {
       b.addEventListener("click", function () {
         var id = Number(b.dataset.abrechnen);
@@ -3244,7 +3263,17 @@
     });
   }
 
+  // "Speichern & Auftrag drucken" = derselbe Ablauf, danach gleich der
+  // Auftragsschein.
+  var auNachSpeichernDrucken = false;
+  document.getElementById("au-speichern-drucken").addEventListener("click", function () {
+    auNachSpeichernDrucken = true;
+    document.getElementById("au-speichern").click();
+  });
+
   document.getElementById("au-speichern").addEventListener("click", function () {
+    var drucken = auNachSpeichernDrucken;
+    auNachSpeichernDrucken = false;
     elAuFehler.hidden = true;
     elAuErfolg.hidden = true;
     var gueltig = auPosten.filter(function (p) { return p.bezeichnung.trim() && p.stueck > 0; });
@@ -3259,8 +3288,15 @@
     })
       .then(function (a) {
         elAuErfolg.textContent = "Auftrag Nr. " + a.rechnungsnummer + " für " + kunde.vorname + " " + kunde.name +
-          " gespeichert (CHF " + chf(a.summe) + ")" + (a.abholdatum ? ", abholen am " + datumKurz(a.abholdatum) : "") + ".";
+          " gespeichert (CHF " + chf(a.summe) + ")" + (a.abholdatum ? ", abholen am " + datumKurz(a.abholdatum) : "") + ". ";
+        var nochmal = document.createElement("button");
+        nochmal.type = "button";
+        nochmal.className = "link-knopf";
+        nochmal.textContent = "Auftragsschein drucken";
+        nochmal.addEventListener("click", function () { auftragsscheinDrucken(a.id, kunde.id, nochmal); });
+        elAuErfolg.appendChild(nochmal);
         elAuErfolg.hidden = false;
+        if (drucken) invoke("quittung_als_pdf_oeffnen", { auftrag: a, kunde: kunde }).catch(function (e) { alert(fehlerText(e)); });
         auPosten = [neuePostenzeile()];
         auPostenZeichnen();
         elAuKunde.value = "";
@@ -3303,7 +3339,9 @@
         elListe.innerHTML = zeilen.map(function (z) {
           var laufend = z.status !== "Abgeholt";
           var aktion = laufend
-            ? '<button type="button" class="knopf knopf-voll knopf-klein" data-abrechnen-kunde="' + z.kunde_id + '" data-abrechnen-id="' + z.id + '">Abrechnen</button>'
+            ? '<span class="aktionen"><button type="button" class="knopf knopf-klein" data-schein-id="' + z.id + '" data-schein-kunde="' + z.kunde_id +
+              '" title="Auftragsschein drucken">🖨</button>' +
+              '<button type="button" class="knopf knopf-voll knopf-klein" data-abrechnen-kunde="' + z.kunde_id + '" data-abrechnen-id="' + z.id + '">Abrechnen</button></span>'
             : !z.bezahlt
               ? '<button type="button" class="knopf knopf-klein" data-bezahlt-id="' + z.id + '">bezahlt ✓</button>'
               : '<span class="zahlart">' + escapeHtml(z.zahlart) + "</span>";
@@ -3324,6 +3362,9 @@
 
         elListe.querySelectorAll("[data-kunde-id]").forEach(function (b) {
           b.addEventListener("click", function () { kundeOeffnen(Number(b.dataset.kundeId)); });
+        });
+        elListe.querySelectorAll("[data-schein-id]").forEach(function (b) {
+          b.addEventListener("click", function () { auftragsscheinDrucken(Number(b.dataset.scheinId), Number(b.dataset.scheinKunde), b); });
         });
         elListe.querySelectorAll("[data-abrechnen-id]").forEach(function (b) {
           b.addEventListener("click", function () {

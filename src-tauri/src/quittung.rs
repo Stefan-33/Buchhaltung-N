@@ -40,8 +40,18 @@ fn datum_kurz(iso: &str) -> String {
 /// Ein bezahlter Auftrag bekommt eine Quittung, ein noch offener (per
 /// Rechnung abgerechneter) eine Rechnung - sonst stuende auf dem Beleg
 /// "bezahlt", obwohl noch nichts bezahlt ist.
+///
+/// Ein noch nicht abgeholter Auftrag (bei der Annahme) wird als
+/// Auftragsschein gedruckt: gleiche Vorlage, Titel "Auftrag", Preis als
+/// voraussichtlich, dazu das Abholdatum.
+fn ist_auftragsschein(auftrag: &Auftrag) -> bool {
+    auftrag.status != crate::geschaeft::STATUS_ABGEHOLT
+}
+
 fn beleg_titel(auftrag: &Auftrag) -> &'static str {
-    if auftrag.bezahlt {
+    if ist_auftragsschein(auftrag) {
+        "Auftrag"
+    } else if auftrag.bezahlt {
         "Quittung"
     } else {
         "Rechnung"
@@ -49,7 +59,9 @@ fn beleg_titel(auftrag: &Auftrag) -> &'static str {
 }
 
 fn total_text(auftrag: &Auftrag) -> String {
-    if auftrag.bezahlt {
+    if ist_auftragsschein(auftrag) {
+        "Total · voraussichtlich".to_string()
+    } else if auftrag.bezahlt {
         format!("Total · bezahlt {}", auftrag.zahlart)
     } else if auftrag.zahlart == "Rechnung" {
         "Total · zahlbar per Rechnung".to_string()
@@ -127,10 +139,31 @@ fn logo_abmessung_mm(breite_px: usize, hoehe_px: usize) -> Option<(f32, f32)> {
 
 /// Zahlungshinweis (z.B. Frist, IBAN) - nur auf einer noch offenen Rechnung.
 fn zahlungshinweis_html(auftrag: &Auftrag, e: &Einstellungen) -> String {
+    if ist_auftragsschein(auftrag) {
+        return auftrag_hinweis_html(auftrag);
+    }
     if auftrag.bezahlt || e.beleg_zahlungshinweis.trim().is_empty() {
         return String::new();
     }
     format!("<p style=\"font-size:10pt;margin:3mm 0 0 0;\">{}</p>\n", html_escapen(&e.beleg_zahlungshinweis))
+}
+
+/// Auf dem Auftragsschein statt des Zahlungshinweises: wann abholbereit,
+/// und dass erst bei der Abholung abgerechnet wird.
+fn auftrag_hinweis_html(auftrag: &Auftrag) -> String {
+    let abholen = match auftrag.abholdatum.as_deref().filter(|d| !d.trim().is_empty()) {
+        Some(d) => format!("<p style=\"font-size:12pt;font-weight:bold;margin:4mm 0 0 0;\">Abholbereit ab: {}</p>\n", datum_kurz(d)),
+        None => String::new(),
+    };
+    format!(
+        "{abholen}<p style=\"font-size:10pt;margin:2mm 0 0 0;\">Der Preis ist voraussichtlich – abgerechnet wird bei der Abholung. Bitte diesen Auftrag zur Abholung mitbringen.</p>\n"
+    )
+}
+
+/// Datum, das auf dem Beleg steht: beim Auftragsschein das Annahmedatum.
+fn beleg_datum(auftrag: &Auftrag) -> String {
+    let datum = if ist_auftragsschein(auftrag) { auftrag.angenommen_am.as_deref().unwrap_or(&auftrag.datum) } else { &auftrag.datum };
+    datum_kurz(datum)
 }
 
 /// Teilt eine Einstellungen-Zeile wie "Staldenbachstrasse 13, 8808 Pfaeffikon"
@@ -187,7 +220,9 @@ fn klassisch_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groe
         })
         .collect();
 
-    let zahlung = if auftrag.bezahlt {
+    let zahlung = if ist_auftragsschein(auftrag) {
+        "voraussichtlicher Preis".to_string()
+    } else if auftrag.bezahlt {
         format!("bezahlt {}", html_escapen(&auftrag.zahlart))
     } else if auftrag.zahlart == "Rechnung" {
         "zahlbar per Rechnung".to_string()
@@ -205,7 +240,7 @@ fn klassisch_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groe
 <tr><td style="font-size:14pt;font-weight:bold;">{titel} {nr}</td><td style="text-align:right;font-weight:bold;">{zusatz}</td></tr>
 </table>
 <table style="width:100%;margin-top:2mm;">
-<tr><td style="width:14mm;color:#555555;">Name</td><td>{vorname} {kname} (Nr. {knr})</td><td style="width:10mm;color:#555555;">Tel</td><td>{ktel}</td><td style="text-align:right;color:#555555;">Datum</td></tr>
+<tr><td style="width:14mm;color:#555555;">Name</td><td>{vorname} {kname} (Nr. {knr})</td><td style="width:10mm;color:#555555;">Tel</td><td>{ktel}</td><td style="text-align:right;color:#555555;">{datum_titel}</td></tr>
 <tr><td style="color:#555555;">Ort</td><td>{ort}</td><td style="color:#555555;">Mail</td><td>{kmail}</td><td style="text-align:right;">{datum}</td></tr>
 </table>
 <table style="width:100%;border-collapse:collapse;margin-top:4mm;">
@@ -228,7 +263,8 @@ fn klassisch_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groe
         ktel = html_escapen(&kunde.telefon),
         ort = html_escapen(&kunde.ort),
         kmail = html_escapen(&kunde.email),
-        datum = datum_kurz(&auftrag.datum),
+        datum = beleg_datum(auftrag),
+        datum_titel = if ist_auftragsschein(auftrag) { "Angenommen" } else { "Datum" },
         dank = html_escapen(&e.beleg_dank),
         summe = auftrag.summe,
         zahlungshinweis = zahlungshinweis_html(auftrag, e),
@@ -280,7 +316,7 @@ fn schlicht_html(auftrag: &Auftrag, kunde: &Kunde, e: &Einstellungen, logo_groes
         kopf = quittung_kopf(e, logo_groesse_mm),
         titel = beleg_titel(auftrag),
         nr = auftrag.rechnungsnummer,
-        datum = datum_kurz(&auftrag.datum),
+        datum = beleg_datum(auftrag),
         vorname = html_escapen(&kunde.vorname),
         kname = html_escapen(&kunde.name),
         ort = html_escapen(&kunde.ort),
@@ -696,5 +732,30 @@ mod tests {
         e.quittung_logo_pfad = Some("/pfad/der/nicht/existiert.png".into());
         let bytes = quittung_pdf_bytes(&test_auftrag(), &test_kunde(), &e).unwrap();
         assert!(bytes.starts_with(b"%PDF"));
+    }
+
+    // Stefans Wunsch: bei der Annahme einen Auftrag drucken wie eine
+    // Rechnung - Titel "Auftrag", Annahmedatum, Abholdatum, Preis als
+    // voraussichtlich, kein "bezahlt" und kein Zahlungshinweis.
+    #[test]
+    fn angenommener_auftrag_wird_als_auftragsschein_gedruckt() {
+        let mut auftrag = test_auftrag();
+        auftrag.status = "In Arbeit".into();
+        auftrag.zahlart = "Rechnung".into();
+        auftrag.bezahlt = false;
+        auftrag.bezahlt_am = None;
+        auftrag.angenommen_am = Some("2026-10-01".into());
+        auftrag.abholdatum = Some("2026-10-09".into());
+        for vorlage in ["klassisch", "schlicht"] {
+            let mut e = mit_vorlage(vorlage);
+            e.beleg_zahlungshinweis = "Zahlbar innert 30 Tagen".into();
+            let html = quittung_html(&auftrag, &test_kunde(), &e, None);
+            assert!(html.contains("Auftrag 1259"), "{vorlage}");
+            assert!(html.contains("Abholbereit ab: 09.10.2026"), "{vorlage}");
+            assert!(html.contains("01.10.2026"), "{vorlage}: Annahmedatum");
+            assert!(!html.contains("bezahlt Bar") && !html.contains("Zahlbar innert"), "{vorlage}");
+            assert_eq!(beleg_titel(&auftrag), "Auftrag");
+            assert!(quittung_pdf_bytes(&auftrag, &test_kunde(), &e).unwrap().starts_with(b"%PDF"), "{vorlage}");
+        }
     }
 }
