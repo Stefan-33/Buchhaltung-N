@@ -329,12 +329,51 @@ fn einnahmen_extern_summe(conn: &Connection, jahr: i32) -> rusqlite::Result<f64>
     )
 }
 
+/// Rechnungen aus den alten Kundenordnern (kundenordner.rs) - aber nur in
+/// Monaten, fuer die es keine Zahlen aus der Treuhand-Excel gibt: deren
+/// Monatsblaetter enthalten dieselben Einnahmen schon, sonst zaehlte alles
+/// doppelt.
+pub(crate) const ALTE_RECHNUNGEN_OHNE_EXCEL_MONATE: &str = "
+    strftime('%Y', datum) = ?1
+    AND strftime('%m', datum) NOT IN (
+        SELECT strftime('%m', e.datum) FROM einnahmen_extern e WHERE strftime('%Y', e.datum) = ?1
+    )";
+
+fn alte_rechnungen_summe(conn: &Connection, jahr: i32) -> rusqlite::Result<f64> {
+    conn.query_row(
+        &format!("SELECT COALESCE(SUM(summe), 0) FROM alte_rechnungen WHERE {ALTE_RECHNUNGEN_OHNE_EXCEL_MONATE}"),
+        [jahr.to_string()],
+        |z| z.get(0),
+    )
+}
+
+/// Umsatz der abgerechneten Auftraege pro Monat (nur aus dem Programm) -
+/// fuer die Doppelt-Warnung beim Excel-Import.
+#[derive(Debug, Serialize)]
+pub struct MonatsUmsatz {
+    pub monat: u32,
+    pub summe: f64,
+}
+
+pub fn auftraege_monatsumsatz(conn: &Connection, jahr: i32) -> Result<Vec<MonatsUmsatz>, TreuhandFehler> {
+    let mut stmt = conn.prepare(
+        "SELECT CAST(strftime('%m', datum) AS INTEGER), SUM(summe) FROM auftraege
+         WHERE strftime('%Y', datum) = ?1 AND status = 'Abgeholt' GROUP BY 1 ORDER BY 1",
+    )?;
+    let zeilen = stmt
+        .query_map([jahr.to_string()], |z| Ok(MonatsUmsatz { monat: z.get(0)?, summe: z.get(1)? }))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(zeilen)
+}
+
 /// Die Zahlen des Treuhand-Berichts, fuer die Anzeige im Reiter (zum
 /// Vergleichen mit der eigenen Excel, bevor der Bericht rausgeht).
 #[derive(Debug, Serialize)]
 pub struct TreuhandUebersicht {
     pub einnahmen_auftraege: f64,
     pub einnahmen_excel: f64,
+    /// Aus den alten Kundenordnern, nur Monate ohne Excel-Zahlen.
+    pub einnahmen_alte_rechnungen: f64,
     pub einnahmen: f64,
     pub ausgaben_nach_kategorie: Vec<(String, f64)>,
     pub ausgaben_gesamt: f64,
@@ -344,10 +383,12 @@ pub struct TreuhandUebersicht {
 pub fn treuhand_uebersicht(conn: &Connection, jahr: i32) -> Result<TreuhandUebersicht, TreuhandFehler> {
     let einnahmen_auftraege = einnahmen_eines_jahres(conn, jahr)?;
     let einnahmen_excel = einnahmen_extern_summe(conn, jahr)?;
-    let z = zusammenfassen(einnahmen_auftraege + einnahmen_excel, &ausgaben_eines_jahres(conn, jahr)?);
+    let einnahmen_alte_rechnungen = alte_rechnungen_summe(conn, jahr)?;
+    let z = zusammenfassen(einnahmen_auftraege + einnahmen_excel + einnahmen_alte_rechnungen, &ausgaben_eines_jahres(conn, jahr)?);
     Ok(TreuhandUebersicht {
         einnahmen_auftraege,
         einnahmen_excel,
+        einnahmen_alte_rechnungen,
         einnahmen: z.einnahmen,
         ausgaben_nach_kategorie: z.ausgaben_nach_kategorie,
         ausgaben_gesamt: z.ausgaben_gesamt,
@@ -362,8 +403,9 @@ pub fn treuhand_bericht_exportieren(conn: &Connection, jahr: i32) -> Result<Path
     let einstellungen = crate::einstellungen::einstellungen_lesen(conn).map_err(|e| e.to_string())?;
     let einnahmen_auftraege = einnahmen_eines_jahres(conn, jahr).map_err(|e| e.to_string())?;
     let einnahmen_excel = einnahmen_extern_summe(conn, jahr).map_err(|e| e.to_string())?;
+    let einnahmen_alte = alte_rechnungen_summe(conn, jahr).map_err(|e| e.to_string())?;
     let ausgaben = ausgaben_eines_jahres(conn, jahr).map_err(|e| e.to_string())?;
-    let z = zusammenfassen(einnahmen_auftraege + einnahmen_excel, &ausgaben);
+    let z = zusammenfassen(einnahmen_auftraege + einnahmen_excel + einnahmen_alte, &ausgaben);
 
     let mut csv = String::new();
     csv.push_str(&format!("{}\n", csv_feld(&einstellungen.geschaeft_name)));
@@ -373,6 +415,9 @@ pub fn treuhand_bericht_exportieren(conn: &Connection, jahr: i32) -> Result<Path
     csv.push_str(&format!("Einnahmen gemäss Kundenrechnungen,,{:.2}\n", einnahmen_auftraege));
     if einnahmen_excel > 0.0 {
         csv.push_str(&format!("Einnahmen übernommen aus Excel,,{einnahmen_excel:.2}\n"));
+    }
+    if einnahmen_alte > 0.0 {
+        csv.push_str(&format!("Einnahmen gemäss früheren Kundenrechnungen (Excel-Ordner),,{einnahmen_alte:.2}\n"));
     }
     csv.push_str(&format!("Total Einnahmen,,{:.2}\n\n", z.einnahmen));
     csv.push_str("Ausgaben\n");
@@ -647,5 +692,22 @@ mod tests {
         let a = |betrag: f64| ausgabe("2026-06-30", "Telefon", betrag);
         assert_eq!(ausgaben_importieren(&mut conn, vec![a(49.9), a(49.9)]).unwrap(), ImportErgebnis { neu: 2, doppelt: 0 });
         assert_eq!(ausgaben_importieren(&mut conn, vec![a(49.9), a(49.9)]).unwrap(), ImportErgebnis { neu: 0, doppelt: 2 });
+    }
+
+    // Fruehere Rechnungen aus den Kundenordnern zaehlen mit - aber nicht in
+    // Monaten, die schon aus der Treuhand-Excel kommen (doppelt).
+    #[test]
+    fn alte_kundenrechnungen_zaehlen_nur_in_monaten_ohne_excel() {
+        let conn = test_db();
+        conn.execute_batch(
+            "INSERT INTO kunden (nummer, name) VALUES (251, 'Bona');
+             INSERT INTO alte_rechnungen (kunde_id, datum, summe, zahlart) VALUES
+                (1, '2026-04-08', 30.0, 'Bar'), (1, '2026-06-02', 44.0, 'Twint'), (1, '2025-12-01', 99.0, 'Bar'), (1, '', 12.0, '');
+             INSERT INTO einnahmen_extern (datum, betrag, zahlart) VALUES ('2026-06-30', 2449.23, 'Bar');",
+        )
+        .unwrap();
+        let u = treuhand_uebersicht(&conn, 2026).unwrap();
+        assert_eq!(u.einnahmen_alte_rechnungen, 30.0, "April zaehlt, Juni kommt schon aus der Excel");
+        assert_eq!(u.einnahmen, 2479.23);
     }
 }

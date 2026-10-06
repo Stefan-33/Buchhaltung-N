@@ -85,6 +85,7 @@ pub fn run() {
             commands::einnahmen_extern_eines_jahres,
             commands::einnahme_extern_loeschen,
             commands::treuhand_uebersicht,
+            commands::auftraege_monatsumsatz,
             commands::update_pruefen,
             commands::datenpaket_erstellen,
             commands::kundenordner_vorschau,

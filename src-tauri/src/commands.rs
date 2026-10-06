@@ -526,3 +526,9 @@ pub fn kunden_datei_oeffnen(zustand: State<AppZustand>, id: i64) -> Antwort<()> 
     let pfad = crate::kundenordner::datei_auspacken(&conn, id)?;
     sicherung::mit_standardprogramm_oeffnen(&pfad)
 }
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn auftraege_monatsumsatz(zustand: State<AppZustand>, jahr: i32) -> Antwort<Vec<treuhand::MonatsUmsatz>> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::auftraege_monatsumsatz(&conn, jahr).map_err(|e| e.to_string())
+}

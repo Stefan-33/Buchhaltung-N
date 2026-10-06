@@ -2403,6 +2403,10 @@
           '<dl class="th-zahlen">' +
           "<dt>Einnahmen aus Aufträgen</dt><dd>" + chf(u.einnahmen_auftraege) + "</dd>" +
           (u.einnahmen_excel ? "<dt>Einnahmen aus Excel übernommen</dt><dd>" + chf(u.einnahmen_excel) + "</dd>" : "") +
+          (u.einnahmen_alte_rechnungen
+            ? '<dt title="Rechnungen aus den alten Kundenordnern – nur Monate, für die keine Zahlen aus der Treuhand-Excel da sind">Einnahmen aus Kundenordnern</dt><dd>' +
+              chf(u.einnahmen_alte_rechnungen) + "</dd>"
+            : "") +
           '<dt class="th-total">Total Einnahmen</dt><dd class="th-total">' + chf(u.einnahmen) + "</dd>" +
           '<dt class="th-total">Total Ausgaben</dt><dd class="th-total">' + chf(u.ausgaben_gesamt) + "</dd>" +
           '<dt class="th-netto">Netto</dt><dd class="th-netto">' + chf(u.netto) + "</dd>" +
@@ -2911,19 +2915,15 @@
   // gewaehlte Jahr und das Vorjahr.
   function thiMonatsUmsatzLaden() {
     thiMonatsUmsatz = {};
-    // "Monat & Jahr" zaehlt die schon importierten Excel-Einnahmen mit -
-    // fuer die Warnung zaehlen nur die Auftraege, darum diese wieder abziehen.
+    // Nur Auftraege aus dem Programm - Excel-Einnahmen und fruehere
+    // Kundenrechnungen verdraengen sich ohnehin gegenseitig nicht doppelt.
     return Promise.all([thJahr, thJahr - 1].map(function (jahr) {
-      return Promise.all([invoke("monatsstatistik", { jahr: jahr }), invoke("einnahmen_extern_eines_jahres", { jahr: jahr })])
-        .then(function (e) {
-          e[0].forEach(function (z) {
-            thiMonatsUmsatz[jahr + "-" + String(z.monat).padStart(2, "0")] = z.bar + z.twint + z.karte + z.rechnung;
-          });
-          e[1].forEach(function (x) { thiMonatsUmsatz[x.datum.slice(0, 7)] -= x.betrag; });
-          Object.keys(thiMonatsUmsatz).forEach(function (m) { if (thiMonatsUmsatz[m] < 0.005) thiMonatsUmsatz[m] = 0; });
-        }).catch(function () {});
+      return invoke("auftraege_monatsumsatz", { jahr: jahr }).then(function (zeilen) {
+        zeilen.forEach(function (z) { thiMonatsUmsatz[jahr + "-" + String(z.monat).padStart(2, "0")] = z.summe; });
+      }).catch(function () {});
     }));
   }
+
 
   document.getElementById("thImportKnopf").addEventListener("click", function () {
     elThiText.value = "";
@@ -3904,7 +3904,7 @@
       "<b>" + rechnungen + " alte Rechnungen</b> · " + dateien + " Dateien." +
       (ohne ? "<br>" + ohne + " Ordner ohne Nummer und ohne Rechnung werden übersprungen." : "") +
       (mitFehler.length ? "<br><b>" + mitFehler.length + " Ordner mit unlesbarer Datei</b> – siehe Spalte „Hinweis“." : "") +
-      "<br>Die alten Rechnungen zählen nicht im Umsatz (der kommt aus der Treuhand-Excel).</div>" +
+      "<br>Die alten Rechnungen zählen im Umsatz und für Treuhand mit – ausser in Monaten, die schon aus der Treuhand-Excel kommen (sonst doppelt).</div>" +
       '<div class="tabellenrahmen" style="max-height:340px;overflow:auto"><table class="auflistung"><thead><tr>' +
       '<th>Nr.</th><th>Name</th><th>Telefon</th><th>Ort</th><th class="re">Rechnungen</th><th class="re">CHF</th><th>Letzte</th><th>Hinweis</th>' +
       "</tr></thead><tbody>" +
@@ -3944,7 +3944,7 @@
         var total = rechnungen.reduce(function (s2, r) { return s2 + r.summe; }, 0);
         el.innerHTML =
           '<h3 class="altes-archiv-titel">Frühere Rechnungen <small>aus dem alten Kundenordner · ' + rechnungen.length +
-          " Rechnungen · CHF " + chf(total) + " · zählen nicht im Umsatz</small></h3>" +
+          " Rechnungen · CHF " + chf(total) + "</small></h3>" +
           (dateien.length
             ? '<div class="knopfreihe" style="margin-top:0">' + dateien.map(function (d) {
                 return '<button type="button" class="knopf knopf-klein" data-datei-id="' + d.id + '">📄 ' + escapeHtml(d.dateiname) + "</button>";

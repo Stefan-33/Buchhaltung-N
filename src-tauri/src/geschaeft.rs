@@ -319,6 +319,10 @@ const KUNDE_MIT_KENNZAHLEN_SQL: &str = r#"
             SELECT SUM(a.summe) FROM auftraege a
             WHERE a.kunde_id = k.id AND a.status = 'Abgeholt'
               AND strftime('%Y', a.datum) = strftime('%Y', 'now')
+        ), 0) + COALESCE((
+            -- fruehere Rechnungen aus dem alten Kundenordner, dieses Jahr
+            SELECT SUM(r.summe) FROM alte_rechnungen r
+            WHERE r.kunde_id = k.id AND strftime('%Y', r.datum) = strftime('%Y', 'now')
         ), 0) AS jahresumsatz,
         (SELECT COUNT(*) FROM auftraege a WHERE a.kunde_id = k.id) AS anzahl_auftraege,
         (SELECT MAX(a.datum) FROM auftraege a WHERE a.kunde_id = k.id) AS letzter_besuch,
@@ -521,6 +525,7 @@ pub fn monatsstatistik(conn: &Connection, jahr: i32) -> Result<Vec<MonatsZeile>,
         // "Monat & Jahr" das ganze Jahr wie Stefans bisheriges "Jahr"-Blatt.
         // Jede Excel-Zeile zaehlt dort als eine Kundin (wie "Kunden" im
         // Monatsblatt), eine ohne Zahlart unter Bar.
+        &format!(
         "SELECT monat, SUM(bar), SUM(twint), SUM(karte), SUM(rechnung), SUM(kunden) FROM (
             SELECT
                 CAST(strftime('%m', datum) AS INTEGER) AS monat,
@@ -543,9 +548,24 @@ pub fn monatsstatistik(conn: &Connection, jahr: i32) -> Result<Vec<MonatsZeile>,
              FROM einnahmen_extern
              WHERE strftime('%Y', datum) = ?1
              GROUP BY 1
+            UNION ALL
+            -- Fruehere Rechnungen aus den Kundenordnern, nur in Monaten
+            -- ohne Treuhand-Excel-Zahlen (sonst doppelt, siehe treuhand.rs)
+            SELECT
+                CAST(strftime('%m', datum) AS INTEGER),
+                COALESCE(SUM(CASE WHEN zahlart NOT IN ('Twint', 'Karte', 'Rechnung') THEN summe END), 0),
+                COALESCE(SUM(CASE WHEN zahlart = 'Twint' THEN summe END), 0),
+                COALESCE(SUM(CASE WHEN zahlart = 'Karte' THEN summe END), 0),
+                COALESCE(SUM(CASE WHEN zahlart = 'Rechnung' THEN summe END), 0),
+                COUNT(DISTINCT kunde_id)
+             FROM alte_rechnungen
+             WHERE {bedingung}
+             GROUP BY 1
          )
          GROUP BY monat
          ORDER BY monat",
+        bedingung = crate::treuhand::ALTE_RECHNUNGEN_OHNE_EXCEL_MONATE
+    ),
     )?;
     let zeilen = stmt
         .query_map([jahr.to_string()], |z| {
@@ -769,5 +789,23 @@ mod tests {
         let juni = monatsstatistik(&conn, 2026).unwrap().into_iter().find(|z| z.monat == 6).unwrap();
         assert_eq!((juni.bar, juni.karte, juni.twint, juni.rechnung), (100.0, 24.38, 65.0, 0.0));
         assert_eq!(juni.anzahl_kunden, 5, "4 Excel-Zeilen + 1 Kundin aus dem Programm");
+    }
+
+    #[test]
+    fn monatsstatistik_zaehlt_alte_kundenrechnungen_ohne_doppel() {
+        let conn = test_db();
+        let k = kunde_anlegen(&conn, neuer_kunde("Bona", "")).unwrap();
+        conn.execute(
+            "INSERT INTO alte_rechnungen (kunde_id, datum, summe, zahlart) VALUES
+                (?1, '2026-04-08', 30.0, 'Bar'), (?1, '2026-04-20', 20.0, 'Karte'), (?1, '2026-06-02', 44.0, 'Twint')",
+            [k.id],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO einnahmen_extern (datum, betrag, zahlart) VALUES ('2026-06-30', 500.0, 'Bar')", []).unwrap();
+        let s = monatsstatistik(&conn, 2026).unwrap();
+        let april = s.iter().find(|z| z.monat == 4).unwrap();
+        assert_eq!((april.bar, april.karte, april.anzahl_kunden), (30.0, 20.0, 1));
+        let juni = s.iter().find(|z| z.monat == 6).unwrap();
+        assert_eq!((juni.bar, juni.twint), (500.0, 0.0), "Juni nur aus der Excel, nicht doppelt");
     }
 }
