@@ -4215,7 +4215,7 @@
             reiter: "r-stunden",
             ziel: "#maUnterreiter",
             text: "<p>Alles für die Angestellte: <b>Stunden</b> erfassen oder aus Excel importieren, <b>Personalien</b>, <b>Lohn</b> (Jahresübersicht für den Lohnausweis) und die Checkliste der <b>Formulare</b>.</p>" +
-              "<p>Zuerst unter „Personalien“ die Mitarbeiterin anlegen, dann ihre Stunden importieren.</p>"
+              "<p>Zuerst unter „Personalien“ die Mitarbeiterin anlegen. Sie braucht <b>kein eigenes Konto</b> – ihre Stunden trägst du selbst ein oder importierst sie (oben bei „Person“ auswählen).</p>"
           }
         : {
             titel: "Meine Stunden",
