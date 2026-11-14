@@ -2722,9 +2722,11 @@
     if (!norm) return null;
     var treffer = thiKategorienGeladen.filter(function (k) { return kiTextNormalisieren(k) === norm; });
     if (treffer.length === 1) return treffer[0];
+    // Teilwort nur bei mindestens 4 Buchstaben - sonst steckt z. B. "Nr" in
+    // "Einrichten" und die laufende Nummer wuerde zur Ausgabe.
     treffer = thiKategorienGeladen.filter(function (k) {
       var kn = kiTextNormalisieren(k);
-      return kn.indexOf(norm) !== -1 || norm.indexOf(kn) !== -1;
+      return (norm.length >= 4 && kn.indexOf(norm) !== -1) || norm.indexOf(kn) !== -1;
     });
     if (treffer.length === 1) return treffer[0];
     treffer = thiKategorienGeladen.filter(function (k) {
@@ -2776,9 +2778,13 @@
     return m ? thiMonatsende(m.jahr || thJahr, m.monat) : "";
   }
 
+  // Spalten mit laufender Nummer, Kundin o. Ae. sind nie ein Betrag.
+  var THI_KEIN_BETRAG = /^(nr|nummer|no|lfnr|laufnr|pos|position|anzahl|stck|stueck|kunde|kunden|kundin|name|quittung|beleg|belegnr)$/;
+
   function thiZiel(rohText) {
     var norm = kiTextNormalisieren(rohText);
     if (!norm) return null;
+    if (THI_KEIN_BETRAG.test(norm)) return "";
     if (Object.prototype.hasOwnProperty.call(thiVonHand, norm)) return thiVonHand[norm];
     if (THI_EINNAHME.test(norm)) return "__einnahme";
     return thiKategoriePassend(rohText);
@@ -2810,7 +2816,7 @@
     var gesehen = {};
     var treffer = 0;
     norm.forEach(function (z, i) {
-      if (!z || i === datum || i === notiz || i === betrag || i === kategorie || THI_TOTAL.test(z)) return;
+      if (!z || i === datum || i === notiz || i === betrag || i === kategorie || THI_TOTAL.test(z) || THI_KEIN_BETRAG.test(z)) return;
       if (gesehen[z]) return;
       gesehen[z] = true;
       var ziel = thiZiel(spalten[i]);
