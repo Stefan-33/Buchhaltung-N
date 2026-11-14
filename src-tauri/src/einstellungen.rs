@@ -161,6 +161,41 @@ fn schreiben(conn: &Connection, schluessel: &str, wert: &str) -> rusqlite::Resul
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Einfuehrung beim ersten Anmelden: pro Konto gemerkt (in der Datenbank,
+// nicht im Browser-Speicher - gilt so auch nach einem Update weiter).
+// ---------------------------------------------------------------------------
+
+pub fn einfuehrung_gesehen(conn: &Connection, benutzer_id: i64) -> rusqlite::Result<bool> {
+    Ok(lesen(conn, &format!("einfuehrung_gesehen_{benutzer_id}"), "")? == "1")
+}
+
+pub fn einfuehrung_merken(conn: &Connection, benutzer_id: i64, gesehen: bool) -> rusqlite::Result<()> {
+    schreiben(conn, &format!("einfuehrung_gesehen_{benutzer_id}"), if gesehen { "1" } else { "" })
+}
+
+/// Fuer die Liste "Erste Schritte" am Ende der Einfuehrung: was schon
+/// erledigt ist (abgehakt) und was noch fehlt.
+#[derive(Debug, serde::Serialize, PartialEq)]
+pub struct ErsteSchritte {
+    pub kunden: i64,
+    pub alte_rechnungen: i64,
+    pub treuhand_eintraege: i64,
+    pub mitarbeiterinnen: i64,
+    pub auftraege: i64,
+}
+
+pub fn erste_schritte(conn: &Connection) -> rusqlite::Result<ErsteSchritte> {
+    let zahl = |sql: &str| -> rusqlite::Result<i64> { conn.query_row(sql, [], |z| z.get(0)) };
+    Ok(ErsteSchritte {
+        kunden: zahl("SELECT COUNT(*) FROM kunden")?,
+        alte_rechnungen: zahl("SELECT COUNT(*) FROM alte_rechnungen")?,
+        treuhand_eintraege: zahl("SELECT (SELECT COUNT(*) FROM einnahmen_extern) + (SELECT COUNT(*) FROM ausgaben)")?,
+        mitarbeiterinnen: zahl("SELECT COUNT(*) FROM benutzer WHERE rolle = 'mitarbeiterin'")?,
+        auftraege: zahl("SELECT COUNT(*) FROM auftraege")?,
+    })
+}
+
 pub fn einstellungen_speichern(conn: &Connection, e: &Einstellungen) -> Result<(), EinstellungenFehler> {
     if e.geschaeft_name.trim().is_empty() {
         return Err(EinstellungenFehler::NameLeer);
@@ -297,5 +332,28 @@ mod tests {
         einstellungen_speichern(&conn, &e).unwrap();
         let gelesen = einstellungen_lesen(&conn).unwrap();
         assert_eq!(gelesen.lohn_ferienzuschlag_satz, 10.6);
+    }
+
+    #[test]
+    fn einfuehrung_wird_pro_konto_gemerkt() {
+        let conn = test_db();
+        assert!(!einfuehrung_gesehen(&conn, 1).unwrap());
+        einfuehrung_merken(&conn, 1, true).unwrap();
+        assert!(einfuehrung_gesehen(&conn, 1).unwrap());
+        assert!(!einfuehrung_gesehen(&conn, 2).unwrap(), "anderes Konto sieht sie trotzdem");
+        einfuehrung_merken(&conn, 1, false).unwrap();
+        assert!(!einfuehrung_gesehen(&conn, 1).unwrap());
+        // Die Einfuehrung beruehrt die uebrigen Einstellungen nicht.
+        assert_eq!(einstellungen_lesen(&conn).unwrap().geschaeft_name, Einstellungen::default().geschaeft_name);
+
+        let leer = erste_schritte(&conn).unwrap();
+        assert_eq!(leer, ErsteSchritte { kunden: 0, alte_rechnungen: 0, treuhand_eintraege: 0, mitarbeiterinnen: 0, auftraege: 0 });
+        conn.execute_batch(
+            "INSERT INTO kunden (nummer, name) VALUES (251, 'Bona');
+             INSERT INTO einnahmen_extern (datum, betrag) VALUES ('2026-08-31', 100.0);",
+        )
+        .unwrap();
+        let s = erste_schritte(&conn).unwrap();
+        assert_eq!((s.kunden, s.treuhand_eintraege), (1, 1));
     }
 }

@@ -122,6 +122,7 @@
     </div>
     <div class="kopf-benutzer">
       <span id="angemeldet-als"></span>
+      <button type="button" class="knopf" id="einfuehrungKnopf" title="Kurze Einführung: wo ist was im Programm">❓ Einführung</button>
       <button class="knopf" id="abmeldenKnopf">Abmelden</button>
     </div>
   </nav>
@@ -712,6 +713,16 @@
 
       <div class="tafel" style="margin-top:20px">
         <div class="tafel-kopf">
+          <h2>Hilfe</h2>
+          <p>Die kurze Einführung vom ersten Anmelden – zeigt Schritt für Schritt, wo was ist</p>
+        </div>
+        <div class="abschnitt knopfreihe" style="margin-top:0">
+          <button class="knopf" id="eiEinfuehrungKnopf">Einführung nochmals ansehen</button>
+        </div>
+      </div>
+
+      <div class="tafel" style="margin-top:20px">
+        <div class="tafel-kopf">
           <h2>Import &amp; Export</h2>
           <p>Alles an einem Ort, egal von welchem Reiter aus man gerade kommt</p>
         </div>
@@ -877,6 +888,25 @@
 </dialog>
 
 <!-- ============ PREISLISTE: EINTRAG (Dialog) ============ -->
+<!-- ============ EINFUEHRUNG (beim ersten Anmelden) ============ -->
+<!-- Nicht-modal unten rechts: der Reiter dahinter bleibt sichtbar, der
+     erklaerte Knopf wird hervorgehoben. -->
+<dialog id="einfuehrungDialog" class="einfuehrung" aria-labelledby="ef-titel">
+  <div class="einfuehrung-karte">
+    <p class="einfuehrung-schritt" id="ef-schritt"></p>
+    <h2 id="ef-titel"></h2>
+    <div id="ef-text" class="einfuehrung-text"></div>
+    <div class="einfuehrung-punkte" id="ef-punkte" aria-hidden="true"></div>
+    <div class="knopfreihe einfuehrung-knoepfe">
+      <button type="button" class="knopf-link" id="ef-ueberspringen">Überspringen</button>
+      <span class="kd-rechts">
+        <button type="button" class="knopf" id="ef-zurueck">Zurück</button>
+        <button type="button" class="knopf knopf-voll" id="ef-weiter">Weiter</button>
+      </span>
+    </div>
+  </div>
+</dialog>
+
 <!-- ============ KORRIGIEREN (ein Dialog fuer alle Eintraege) ============ -->
 <!-- Ausgaben, Excel-Einnahmen, fruehere Rechnungen, Stunden: falls beim
      Import oder Erfassen etwas nicht stimmt, hier selbst richtigstellen. -->

@@ -603,3 +603,22 @@ pub fn auftrag_storno_aufheben(zustand: State<AppZustand>, auftrag_id: i64) -> A
     let conn = verbindung_sperren(&zustand);
     auftraege::auftrag_storno_aufheben(&conn, auftrag_id).map_err(|e| e.to_string())
 }
+
+// Einfuehrung beim ersten Anmelden (siehe einstellungen.rs).
+#[tauri::command(rename_all = "snake_case")]
+pub fn einfuehrung_gesehen(zustand: State<AppZustand>, benutzer_id: i64) -> Antwort<bool> {
+    let conn = verbindung_sperren(&zustand);
+    einstellungen::einfuehrung_gesehen(&conn, benutzer_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn einfuehrung_merken(zustand: State<AppZustand>, benutzer_id: i64, gesehen: bool) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    einstellungen::einfuehrung_merken(&conn, benutzer_id, gesehen).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn erste_schritte(zustand: State<AppZustand>) -> Antwort<einstellungen::ErsteSchritte> {
+    let conn = verbindung_sperren(&zustand);
+    einstellungen::erste_schritte(&conn).map_err(|e| e.to_string())
+}

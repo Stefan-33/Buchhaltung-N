@@ -157,6 +157,11 @@
       })
       .catch(function () {}); // Vorbelegte Standardwerte bleiben, Seite funktioniert trotzdem
     programmStarten();
+    // Beim allerersten Anmelden dieses Kontos: kurze Einfuehrung.
+    var fuer = benutzer.id;
+    invoke("einfuehrung_gesehen", { benutzer_id: fuer })
+      .then(function (gesehen) { if (!gesehen && aktuellerBenutzer && aktuellerBenutzer.id === fuer) einfuehrungStarten(); })
+      .catch(function () {});
   }
 
   // Waehrend eine Anfrage laeuft, den Knopf sperren UND den Text sichtbar
@@ -276,6 +281,7 @@
   });
 
   document.getElementById("abmeldenKnopf").addEventListener("click", function () {
+    einfuehrungSchliessen(false);
     aktuellerBenutzer = null;
     bildschirmZeigen(elProgramm, false);
     bildschirmZeigen(elLoginBuehne, true);
@@ -4144,6 +4150,206 @@
       })
       .catch(function () {});
   }
+
+  // ================= EINFUEHRUNG =================
+  // Erscheint beim ersten Anmelden eines Kontos (einstellungen.rs merkt es
+  // sich pro Konto) und laesst sich jederzeit wieder oeffnen (links unten
+  // "Einfuehrung", Einstellungen -> Hilfe). Jeder Schritt oeffnet den
+  // passenden Reiter und hebt den erklaerten Knopf hervor.
+  var elEinfuehrung = document.getElementById("einfuehrungDialog");
+  var efSchritte = [];
+  var efIndex = 0;
+  var efZiel = null;
+
+  function efAlleSchritte() {
+    var name = aktuellerBenutzer ? aktuellerBenutzer.anzeigename : "";
+    var inhaber = istInhaber();
+    return [
+      {
+        titel: "Willkommen im Atelierbuch" + (name ? ", " + name : "") + "!",
+        ziel: ".seitenleiste",
+        text: "<p>Hier sind Kunden, Aufträge, Treuhand und die Stunden der Mitarbeiterin an einem Ort – statt in vielen Excel-Listen.</p>" +
+          "<p>Diese kurze Einführung zeigt in etwa 2 Minuten, wo was ist. Links sind die <b>Reiter</b>; mit „Weiter“ gehen wir sie zusammen durch.</p>" +
+          "<p>Später jederzeit wieder: links unten auf <b>„❓ Einführung“</b>.</p>"
+      },
+      {
+        titel: "Übersicht – der Start jeden Tag",
+        reiter: "r-start",
+        text: "<p>Hier steht, welche Aufträge <b>heute abgeholt</b> werden, was <b>überfällig</b> ist und welche Rechnungen noch <b>offen</b> sind.</p>" +
+          "<p>Ein Klick auf einen Auftrag öffnet direkt das Blatt der Kundin.</p>"
+      },
+      {
+        titel: "Kunden",
+        reiter: "r-arbeit",
+        ziel: inhaber ? "#kundenordnerKnopf" : "#suche",
+        text: "<p>Jede Kundin finden: einfach <b>Name, Ort oder Telefonnummer</b> tippen. Im Kundenblatt unter „Verlauf“ steht alles, was sie je gebracht hat.</p>" +
+          (inhaber
+            ? "<p><b>Als Erstes:</b> Mit „Kundenordner einlesen …“ die bisherigen Kundenordner (z. B. „Kunden 2026“) holen – mit allen alten Rechnungen. Nochmals einlesen schadet nicht, es wird nichts doppelt übernommen.</p>"
+            : "")
+      },
+      {
+        titel: "Aufträge – annehmen und abrechnen",
+        reiter: "r-auftraege",
+        ziel: "#au-kunde",
+        text: "<p><b>Bringt jemand etwas:</b> Kundennummer oder Namen eingeben, Arbeit und Preis eintragen, Abholdatum wählen, dann <b>„Speichern &amp; drucken“</b> – das gibt den Auftragsschein.</p>" +
+          "<p>Ist es fertig: Status auf <b>„Abholbereit“</b>. Beim Abholen <b>„Abrechnen“</b>, Zahlart wählen (Bar, Twint, Karte oder Rechnung) – fertig ist der Beleg.</p>"
+      },
+      {
+        titel: "Treuhand",
+        reiter: "r-treuhand",
+        ziel: "#thImportKnopf",
+        nurInhaber: true,
+        text: "<p>Mit <b>„Aus Excel importieren“</b> die Monats-Excel einlesen: grüne Blätter sind Einnahmen, rote „A“-Blätter Ausgaben.</p>" +
+          "<p>Kommt ein Monat dazu, <b>dieselbe Datei einfach nochmals einlesen</b> – es zählt nichts doppelt. Neue Ausgaben kann man auch direkt hier erfassen.</p>" +
+          "<p>Oben in der <b>Übersicht</b> das Total mit der eigenen Excel vergleichen.</p>"
+      },
+      {
+        titel: "Monat & Jahr",
+        reiter: "r-monat",
+        nurInhaber: true,
+        text: "<p>Der Umsatz pro Monat, aufgeteilt nach <b>Bar, Twint, Karte und Rechnung</b> – ohne selbst nachzurechnen.</p>"
+      },
+      inhaber
+        ? {
+            titel: "Mitarbeiter",
+            reiter: "r-stunden",
+            ziel: "#maUnterreiter",
+            text: "<p>Alles für die Angestellte: <b>Stunden</b> erfassen oder aus Excel importieren, <b>Personalien</b>, <b>Lohn</b> (Jahresübersicht für den Lohnausweis) und die Checkliste der <b>Formulare</b>.</p>" +
+              "<p>Zuerst unter „Personalien“ die Mitarbeiterin anlegen, dann ihre Stunden importieren.</p>"
+          }
+        : {
+            titel: "Meine Stunden",
+            reiter: "r-stunden",
+            text: "<p>Hier trägst du deine Arbeitszeiten ein – Vormittag und Nachmittag, die Stunden rechnet das Programm selbst.</p>"
+          },
+      {
+        titel: "Etwas stimmt nicht? Kein Problem",
+        text: "<p>Überall, wo ein <b>Stift ✎</b> steht, lässt sich korrigieren: Betrag, Datum, Zahlart, Stunden, Rechnungen.</p>" +
+          "<p>Mit <b>×</b> wird gelöscht – das Programm fragt immer zuerst nach. Eine falsche Rechnung wird <b>storniert</b>: Sie bleibt durchgestrichen sichtbar, zählt aber nicht mehr, und „Storno aufheben“ macht es rückgängig.</p>"
+      },
+      {
+        titel: "Einstellungen",
+        reiter: "r-einstellungen",
+        ziel: inhaber ? "#eiGeschaeftTafel" : null,
+        text: "<p>Hier stehen " + (inhaber ? "die <b>Geschäftsangaben und das Logo</b> für die Belege, die Kartengebühren, die Lohnsätze und " : "") +
+          "<b>„Jetzt sichern“</b> für eine Sicherung aller Daten.</p>" +
+          "<p>Gibt es eine neue Programmversion, erscheint links unten <b>„Jetzt aktualisieren“</b> – die Daten bleiben dabei erhalten.</p>"
+      },
+      { titel: "Erste Schritte", reiter: "r-start", ersteSchritte: true }
+    ].filter(function (s) { return !s.nurInhaber || inhaber; });
+  }
+
+  function efZielEntfernen() {
+    if (efZiel) efZiel.classList.remove("einfuehrung-ziel");
+    efZiel = null;
+  }
+
+  function efErsteSchritteHtml(stand) {
+    var inhaber = istInhaber();
+    var punkte = [
+      inhaber && { text: "Kundenordner einlesen", fertig: stand.kunden > 0, tun: "kundenordner" },
+      inhaber && { text: "Treuhand-Excel einlesen", fertig: stand.treuhand_eintraege > 0, tun: "treuhand" },
+      inhaber && { text: "Mitarbeiterin anlegen", fertig: stand.mitarbeiterinnen > 0, tun: "mitarbeiterin" },
+      { text: "Ersten Auftrag annehmen", fertig: stand.auftraege > 0, tun: "auftrag" },
+      inhaber && { text: "Geschäftsangaben für die Belege prüfen", fertig: false, tun: "geschaeft" }
+    ].filter(Boolean);
+    return "<p>Damit alles bereit ist – was schon erledigt ist, hat einen Haken:</p>" +
+      '<ul class="erste-schritte">' + punkte.map(function (p) {
+        return '<li class="' + (p.fertig ? "erledigt" : "") + '"><span class="haken">✓</span><span class="es-text">' + escapeHtml(p.text) + "</span>" +
+          (p.fertig ? "" : '<button type="button" class="knopf knopf-klein" data-ef-tun="' + p.tun + '">Jetzt machen</button>') + "</li>";
+      }).join("") + "</ul>" +
+      "<p style=\"margin-top:10px\">Keine Angst vor Fehlern: Alles lässt sich später korrigieren.</p>";
+  }
+
+  function efTun(was) {
+    einfuehrungSchliessen(true);
+    if (was === "kundenordner") { reiterOeffnen("r-arbeit"); document.getElementById("kundenordnerKnopf").click(); }
+    else if (was === "treuhand") { reiterOeffnen("r-treuhand"); document.getElementById("thImportKnopf").click(); }
+    else if (was === "mitarbeiterin") { reiterOeffnen("r-stunden"); maAnsichtZeigen("personalien"); document.getElementById("mitarbeiterinAnlegenKnopf").click(); }
+    else if (was === "auftrag") { reiterOeffnen("r-auftraege"); document.getElementById("au-kunde").focus(); }
+    else if (was === "geschaeft") {
+      reiterOeffnen("r-einstellungen");
+      var t = document.getElementById("eiGeschaeftTafel");
+      if (t) t.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  function efZeigen() {
+    var s = efSchritte[efIndex];
+    efZielEntfernen();
+    if (s.reiter) reiterOeffnen(s.reiter);
+    document.getElementById("ef-schritt").textContent = "Schritt " + (efIndex + 1) + " von " + efSchritte.length;
+    document.getElementById("ef-titel").textContent = s.titel;
+    var elText = document.getElementById("ef-text");
+    elText.innerHTML = s.text || "";
+    document.getElementById("ef-punkte").innerHTML = efSchritte.map(function (x, i) {
+      return '<span class="' + (i === efIndex ? "aktiv" : "") + '"></span>';
+    }).join("");
+    document.getElementById("ef-zurueck").hidden = efIndex === 0;
+    var letzter = efIndex === efSchritte.length - 1;
+    document.getElementById("ef-weiter").textContent = letzter ? "Los geht's" : "Weiter";
+    document.getElementById("ef-ueberspringen").hidden = letzter;
+    if (s.ersteSchritte) {
+      elText.innerHTML = '<p class="leer">Lade …</p>';
+      invoke("erste_schritte")
+        .then(function (stand) {
+          if (efSchritte[efIndex] !== s) return;
+          elText.innerHTML = efErsteSchritteHtml(stand);
+          elText.querySelectorAll("[data-ef-tun]").forEach(function (b) {
+            b.addEventListener("click", function () { efTun(b.dataset.efTun); });
+          });
+        })
+        .catch(function () { elText.innerHTML = efErsteSchritteHtml({ kunden: 0, treuhand_eintraege: 0, mitarbeiterinnen: 0, auftraege: 0 }); });
+    }
+    if (s.ziel) {
+      var ziel = document.querySelector(s.ziel);
+      if (ziel && ziel.offsetParent !== null) {
+        efZiel = ziel;
+        ziel.classList.add("einfuehrung-ziel");
+        ziel.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+    document.getElementById("ef-weiter").focus();
+  }
+
+  function einfuehrungStarten() {
+    if (!aktuellerBenutzer) return;
+    efSchritte = efAlleSchritte();
+    efIndex = 0;
+    if (!elEinfuehrung.open) elEinfuehrung.show();
+    efZeigen();
+  }
+
+  // gesehen = true: fuer dieses Konto merken (nicht mehr automatisch zeigen).
+  function einfuehrungSchliessen(gesehen) {
+    efZielEntfernen();
+    if (elEinfuehrung.open) elEinfuehrung.close();
+    if (gesehen && aktuellerBenutzer) {
+      invoke("einfuehrung_merken", { benutzer_id: aktuellerBenutzer.id, gesehen: true }).catch(function () {});
+    }
+  }
+
+  document.getElementById("ef-weiter").addEventListener("click", function () {
+    if (efIndex >= efSchritte.length - 1) { einfuehrungSchliessen(true); reiterOeffnen("r-start"); return; }
+    efIndex++;
+    efZeigen();
+  });
+  document.getElementById("ef-zurueck").addEventListener("click", function () {
+    if (efIndex > 0) { efIndex--; efZeigen(); }
+  });
+  document.getElementById("ef-ueberspringen").addEventListener("click", function () {
+    einfuehrungSchliessen(true);
+    reiterOeffnen("r-start");
+  });
+  // Escape schliesst (die Karte ist nicht-modal, "cancel" kommt da nicht) -
+  // aber nicht, solange ein anderes Fenster (z. B. ein Import) offen ist.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || !elEinfuehrung.open) return;
+    if (document.querySelector("dialog.dialog[open]")) return;
+    einfuehrungSchliessen(true);
+  });
+  document.getElementById("einfuehrungKnopf").addEventListener("click", einfuehrungStarten);
+  document.getElementById("eiEinfuehrungKnopf").addEventListener("click", einfuehrungStarten);
 
   // ================= KORRIGIEREN =================
   // Ein Dialog fuer alle nachtraeglichen Korrekturen (Ausgaben, Excel-
