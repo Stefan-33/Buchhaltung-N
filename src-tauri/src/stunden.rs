@@ -25,6 +25,8 @@ pub enum StundenFehler {
     KeinZeitblock,
     #[error("Dieser Eintrag gehoert nicht dir")]
     NichtEigenerEintrag,
+    #[error("Bitte ein gültiges Datum eingeben")]
+    UngueltigesDatum,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -246,6 +248,31 @@ pub fn alle_stunden(conn: &Connection, jahr: i32, monat: u32) -> Result<Vec<Stun
     Ok(zeilen)
 }
 
+/// Einen Eintrag korrigieren (falsche Zeit oder falscher Tag, z.B. aus dem
+/// Excel-Import) - gleiche Regeln wie beim Erfassen und wie beim Loeschen
+/// nur fuer Eintraege der angegebenen Person.
+pub fn stunden_aendern(conn: &Connection, id: i64, benutzer_id: i64, eingabe: &NeuerStundenEintrag) -> Result<StundenEintrag, StundenFehler> {
+    let datum = eingabe.datum.trim();
+    if chrono::NaiveDate::parse_from_str(datum, "%Y-%m-%d").is_err() {
+        return Err(StundenFehler::UngueltigesDatum);
+    }
+    let vm_beginn = normalisieren_streng(&eingabe.vm_beginn)?;
+    let vm_ende = normalisieren_streng(&eingabe.vm_ende)?;
+    let nm_beginn = normalisieren_streng(&eingabe.nm_beginn)?;
+    let nm_ende = normalisieren_streng(&eingabe.nm_ende)?;
+    zeitbloecke_pruefen(&vm_beginn, &vm_ende, &nm_beginn, &nm_ende)?;
+    let betroffen = conn.execute(
+        "UPDATE arbeitsstunden SET datum = ?1, vm_beginn = ?2, vm_ende = ?3, nm_beginn = ?4, nm_ende = ?5, notiz = ?6
+         WHERE id = ?7 AND benutzer_id = ?8",
+        params![datum, vm_beginn, vm_ende, nm_beginn, nm_ende, eingabe.notiz.trim(), id, benutzer_id],
+    )?;
+    if betroffen == 0 {
+        return Err(StundenFehler::NichtEigenerEintrag);
+    }
+    let sql = format!("{EINTRAG_SQL} WHERE a.id = ?1");
+    Ok(conn.query_row(&sql, [id], zeile_zu_eintrag)?)
+}
+
 /// Loescht einen Eintrag - aber nur, wenn er wirklich der anfragenden
 /// Person gehoert (z.B. ein Tippfehler-Eintrag von sich selbst). Verhindert,
 /// dass jemand per erratener ID fremde Eintraege loescht.
@@ -398,5 +425,16 @@ mod tests {
         assert_eq!(januar[0].stunden, 2.5);
         // Fuer eine andere Person zaehlt derselbe Tag nicht als doppelt.
         assert_eq!(stunden_importieren(&mut conn, 1, vec![eintrag("2026-01-12", "", "", "13:30", "16:00")]).unwrap().neu, 1);
+    }
+
+    #[test]
+    fn eintrag_korrigieren_nur_fuer_die_eigene_person() {
+        let conn = test_db();
+        let e = stunden_erfassen(&conn, 2, &eintrag("2026-06-02", "", "", "13:30", "16:00")).unwrap();
+        let g = stunden_aendern(&conn, e.id, 2, &eintrag("2026-06-03", "8:30", "11:00", "13:30", "16:00")).unwrap();
+        assert_eq!((g.datum.as_str(), g.stunden), ("2026-06-03", 5.0));
+        assert!(matches!(stunden_aendern(&conn, e.id, 1, &eintrag("2026-06-03", "", "", "13:30", "16:00")), Err(StundenFehler::NichtEigenerEintrag)));
+        assert!(matches!(stunden_aendern(&conn, e.id, 2, &eintrag("3.6.2026", "", "", "13:30", "16:00")), Err(StundenFehler::UngueltigesDatum)));
+        assert!(matches!(stunden_aendern(&conn, e.id, 2, &eintrag("2026-06-03", "", "", "", "")), Err(StundenFehler::KeinZeitblock)));
     }
 }

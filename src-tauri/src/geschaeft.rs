@@ -31,6 +31,12 @@ pub enum GeschaeftFehler {
     UngueltigeZahlart,
     #[error("Ungültiges Abholdatum")]
     UngueltigesDatum,
+    #[error("Ungültiges Rechnungsdatum")]
+    UngueltigesRechnungsdatum,
+    #[error("Dieser Auftrag ist storniert - zuerst das Storno aufheben")]
+    Storniert,
+    #[error("Dieser Auftrag ist nicht storniert")]
+    NichtStorniert,
 }
 
 pub const ZAHLARTEN: &[&str] = &["Bar", "Twint", "Karte", "Rechnung"];
@@ -39,6 +45,10 @@ pub const ZAHLARTEN: &[&str] = &["Bar", "Twint", "Karte", "Rechnung"];
 /// heisst gleichzeitig: abgerechnet (Beleg erstellt) - erst ab dann
 /// zaehlt der Betrag als Umsatz.
 pub const STATUS_ABGEHOLT: &str = "Abgeholt";
+/// Irrtuemlich erfasster Auftrag / falsche Rechnung: bleibt mit Nummer
+/// sichtbar, zaehlt aber nirgends mehr (kein Umsatz, nicht offen, nicht
+/// laufend). Laesst sich wieder aufheben.
+pub const STATUS_STORNIERT: &str = "Storniert";
 pub const AUFTRAG_STATUS: &[&str] = &["Angenommen", "In Arbeit", "Abholbereit", STATUS_ABGEHOLT];
 
 fn status_abgeholt() -> String {
@@ -327,7 +337,7 @@ const KUNDE_MIT_KENNZAHLEN_SQL: &str = r#"
         (SELECT COUNT(*) FROM auftraege a WHERE a.kunde_id = k.id) AS anzahl_auftraege,
         (SELECT MAX(a.datum) FROM auftraege a WHERE a.kunde_id = k.id) AS letzter_besuch,
         COALESCE((
-            SELECT SUM(a.summe) FROM auftraege a WHERE a.kunde_id = k.id AND a.bezahlt = 0
+            SELECT SUM(a.summe) FROM auftraege a WHERE a.kunde_id = k.id AND a.bezahlt = 0 AND a.status <> 'Storniert'
         ), 0) AS offen_summe
     FROM kunden k
 "#;

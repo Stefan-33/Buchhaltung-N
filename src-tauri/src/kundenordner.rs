@@ -473,7 +473,8 @@ pub fn ordner_uebernehmen(conn: &Connection, k: &OrdnerKunde, ergebnis: &mut Ord
 
     for r in &k.rechnungen {
         let da: bool = conn
-            .query_row("SELECT EXISTS(SELECT 1 FROM alte_rechnungen WHERE kunde_id = ?1 AND quelle = ?2)", params![kunde_id, r.quelle], |z| {
+            .query_row("SELECT EXISTS(SELECT 1 FROM alte_rechnungen WHERE kunde_id = ?1 AND quelle = ?2)
+                     OR EXISTS(SELECT 1 FROM alte_rechnungen_entfernt WHERE kunde_id = ?1 AND quelle = ?2)", params![kunde_id, r.quelle], |z| {
                 z.get(0)
             })
             .map_err(e)?;
@@ -560,6 +561,48 @@ pub fn alte_rechnungen_von_kunde(conn: &Connection, kunde_id: i64) -> Result<Vec
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
     Ok(zeilen)
+}
+
+/// Eine fruehere Rechnung korrigieren (z.B. falsch gelesener Betrag oder
+/// fehlendes Datum). Die Quelle bleibt - erneutes Einlesen ueberschreibt
+/// die Korrektur nicht.
+pub fn alte_rechnung_aendern(conn: &Connection, id: i64, datum: &str, summe: f64, zahlart: &str, posten: &str) -> Result<(), String> {
+    let datum = datum.trim();
+    if !datum.is_empty() && chrono::NaiveDate::parse_from_str(datum, "%Y-%m-%d").is_err() {
+        return Err("Bitte ein gültiges Datum eingeben.".to_string());
+    }
+    if !(summe >= 0.0) {
+        return Err("Bitte einen gültigen Betrag eingeben.".to_string());
+    }
+    let zahlart = match zahlart.trim() {
+        z @ ("Bar" | "Karte" | "Twint" | "Rechnung") => z,
+        _ => "",
+    };
+    let n = conn
+        .execute(
+            "UPDATE alte_rechnungen SET datum = ?1, summe = ?2, zahlart = ?3, posten = ?4 WHERE id = ?5",
+            params![datum, (summe * 100.0).round() / 100.0, zahlart, posten.trim(), id],
+        )
+        .map_err(|e| e.to_string())?;
+    if n == 0 {
+        return Err("Diese Rechnung existiert nicht mehr.".to_string());
+    }
+    Ok(())
+}
+
+/// Eine fruehere Rechnung loeschen (z.B. doppelt oder gar keine Rechnung).
+/// Gemerkt, damit sie beim naechsten Einlesen nicht wieder auftaucht.
+pub fn alte_rechnung_loeschen(conn: &mut Connection, id: i64) -> Result<(), String> {
+    let e = |e: rusqlite::Error| e.to_string();
+    let tx = conn.transaction().map_err(e)?;
+    tx.execute(
+        "INSERT OR IGNORE INTO alte_rechnungen_entfernt (kunde_id, quelle)
+         SELECT kunde_id, quelle FROM alte_rechnungen WHERE id = ?1 AND quelle <> ''",
+        [id],
+    )
+    .map_err(e)?;
+    tx.execute("DELETE FROM alte_rechnungen WHERE id = ?1", [id]).map_err(e)?;
+    tx.commit().map_err(e)
 }
 
 #[derive(Debug, Serialize)]
@@ -710,5 +753,35 @@ mod tests {
         let pfad = datei_auspacken(&conn, dateien[0].id).unwrap();
         assert_eq!(std::fs::read(&pfad).unwrap(), b"Inhalt");
         let _ = std::fs::remove_dir_all(&basis);
+    }
+
+    // Korrigieren und Loeschen frueherer Rechnungen: die Korrektur bleibt,
+    // eine geloeschte kommt beim erneuten Einlesen nicht zurueck.
+    #[test]
+    fn alte_rechnung_korrigieren_und_loeschen() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::schema_fuer_tests_anlegen(&conn);
+        let r = |quelle: &str| GeleseneRechnung {
+            rechnung: rechnung_aus_blatt(&bona_blatt()).unwrap(),
+            quelle: quelle.into(),
+        };
+        let mut k = kundenordner_lesen(Path::new("/gibt-es-nicht/251 Bona"));
+        k.rechnungen = vec![r("Aenderungen.xlsx › Rechn"), r("Aenderungen.xlsx › Rechn (2)")];
+        let mut ergebnis = OrdnerImport::default();
+        ordner_uebernehmen(&conn, &k, &mut ergebnis).unwrap();
+        let kunde: i64 = conn.query_row("SELECT id FROM kunden WHERE nummer = 251", [], |z| z.get(0)).unwrap();
+        let liste = alte_rechnungen_von_kunde(&conn, kunde).unwrap();
+        assert_eq!(liste.len(), 2);
+
+        alte_rechnung_aendern(&conn, liste[0].id, "2026-04-09", 35.5, "Twint", "Kragen").unwrap();
+        assert!(alte_rechnung_aendern(&conn, liste[0].id, "9.4.26", 35.5, "Twint", "").is_err());
+        alte_rechnung_loeschen(&mut conn, liste[1].id).unwrap();
+
+        let mut ergebnis = OrdnerImport::default();
+        ordner_uebernehmen(&conn, &k, &mut ergebnis).unwrap();
+        assert_eq!(ergebnis.rechnungen, 0, "geloeschte kommt nicht zurueck, korrigierte wird nicht ueberschrieben");
+        let liste = alte_rechnungen_von_kunde(&conn, kunde).unwrap();
+        assert_eq!(liste.len(), 1);
+        assert_eq!((liste[0].datum.as_str(), liste[0].summe, liste[0].zahlart.as_str()), ("2026-04-09", 35.5, "Twint"));
     }
 }

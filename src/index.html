@@ -877,6 +877,24 @@
 </dialog>
 
 <!-- ============ PREISLISTE: EINTRAG (Dialog) ============ -->
+<!-- ============ KORRIGIEREN (ein Dialog fuer alle Eintraege) ============ -->
+<!-- Ausgaben, Excel-Einnahmen, fruehere Rechnungen, Stunden: falls beim
+     Import oder Erfassen etwas nicht stimmt, hier selbst richtigstellen. -->
+<dialog id="korrekturDialog" class="dialog">
+  <div class="dialog-karte">
+    <h2 id="kd-titel">Korrigieren</h2>
+    <div id="kd-felder"></div>
+    <p id="kd-fehler" class="login-fehler" hidden></p>
+    <div class="knopfreihe kd-knoepfe">
+      <button type="button" class="knopf kd-loeschen" id="kd-loeschen">Löschen</button>
+      <span class="kd-rechts">
+        <button type="button" class="knopf" id="kd-abbrechen">Abbrechen</button>
+        <button type="button" class="knopf knopf-voll" id="kd-speichern">Speichern</button>
+      </span>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="preisDialog" class="dialog">
   <div class="dialog-karte">
     <h2 id="pd-titel">Neuer Eintrag</h2>

@@ -18,6 +18,10 @@ pub enum TreuhandFehler {
     UngueltigerBetrag,
     #[error("Unbekannte Kategorie")]
     UnbekannteKategorie,
+    #[error("Bitte ein gültiges Datum eingeben")]
+    UngueltigesDatum,
+    #[error("Dieser Eintrag existiert nicht mehr")]
+    NichtGefunden,
     #[error("Beleg konnte nicht gespeichert werden: {0}")]
     Beleg(std::io::Error),
 }
@@ -279,6 +283,58 @@ pub fn einnahmen_extern_eines_jahres(conn: &Connection, jahr: i32) -> Result<Vec
 
 pub fn einnahme_extern_loeschen(conn: &Connection, id: i64) -> Result<(), TreuhandFehler> {
     conn.execute("DELETE FROM einnahmen_extern WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+/// Nachtraeglich korrigieren (falls beim Import oder Erfassen etwas nicht
+/// stimmt) - ohne Umweg ueber Loeschen und neu Erfassen. Ein vorhandener
+/// Beleg bleibt erhalten.
+pub fn ausgabe_aendern(conn: &Connection, id: i64, eingabe: &NeueAusgabe) -> Result<Ausgabe, TreuhandFehler> {
+    if !AUSGABEN_KATEGORIEN.contains(&eingabe.kategorie.as_str()) {
+        return Err(TreuhandFehler::UnbekannteKategorie);
+    }
+    if !(eingabe.betrag > 0.0) {
+        return Err(TreuhandFehler::UngueltigerBetrag);
+    }
+    let datum = eingabe.datum.trim();
+    if !datum_gueltig(datum) {
+        return Err(TreuhandFehler::UngueltigesDatum);
+    }
+    let geaendert = conn.execute(
+        "UPDATE ausgaben SET datum = ?1, kategorie = ?2, betrag = ?3, notiz = ?4 WHERE id = ?5",
+        params![datum, eingabe.kategorie, rappen(eingabe.betrag), eingabe.notiz.trim(), id],
+    )?;
+    if geaendert == 0 {
+        return Err(TreuhandFehler::NichtGefunden);
+    }
+    if let Some(quelle) = &eingabe.beleg_quelle {
+        let beleg_pfad = beleg_kopieren(quelle, id)?;
+        conn.execute("UPDATE ausgaben SET beleg_pfad = ?1 WHERE id = ?2", params![beleg_pfad, id])?;
+    }
+    let sql = format!("SELECT {AUSGABE_SPALTEN} FROM ausgaben WHERE id = ?1");
+    Ok(conn.query_row(&sql, [id], zeile_zu_ausgabe)?)
+}
+
+/// Eine aus Excel uebernommene Einnahme korrigieren.
+pub fn einnahme_extern_aendern(conn: &Connection, id: i64, eingabe: &NeueEinnahme) -> Result<(), TreuhandFehler> {
+    let datum = eingabe.datum.trim();
+    if !datum_gueltig(datum) {
+        return Err(TreuhandFehler::UngueltigesDatum);
+    }
+    if !(eingabe.betrag > 0.0) {
+        return Err(TreuhandFehler::UngueltigerBetrag);
+    }
+    let zahlart = match eingabe.zahlart.trim() {
+        z @ ("Bar" | "Karte" | "Twint" | "Rechnung") => z,
+        _ => "",
+    };
+    let geaendert = conn.execute(
+        "UPDATE einnahmen_extern SET datum = ?1, betrag = ?2, notiz = ?3, zahlart = ?4 WHERE id = ?5",
+        params![datum, rappen(eingabe.betrag), eingabe.notiz.trim(), zahlart, id],
+    )?;
+    if geaendert == 0 {
+        return Err(TreuhandFehler::NichtGefunden);
+    }
     Ok(())
 }
 
@@ -709,5 +765,28 @@ mod tests {
         let u = treuhand_uebersicht(&conn, 2026).unwrap();
         assert_eq!(u.einnahmen_alte_rechnungen, 30.0, "April zaehlt, Juni kommt schon aus der Excel");
         assert_eq!(u.einnahmen, 2479.23);
+    }
+
+    // Falscher Betrag oder falsches Datum aus dem Import: direkt im
+    // Programm korrigieren, ohne Loeschen und neu Erfassen.
+    #[test]
+    fn ausgaben_und_einnahmen_lassen_sich_korrigieren() {
+        let conn = test_db();
+        let a = ausgabe_erfassen(&conn, &ausgabe("2026-06-30", "Telefon", 49.9)).unwrap();
+        let mut neu = ausgabe("2026-07-01", "Werbung", 59.95);
+        neu.notiz = "  Inserat ".into();
+        let g = ausgabe_aendern(&conn, a.id, &neu).unwrap();
+        assert_eq!((g.datum.as_str(), g.kategorie.as_str(), g.betrag, g.notiz.as_str()), ("2026-07-01", "Werbung", 59.95, "Inserat"));
+        assert!(matches!(ausgabe_aendern(&conn, a.id, &ausgabe("30.06.2026", "Werbung", 1.0)), Err(TreuhandFehler::UngueltigesDatum)));
+        assert!(matches!(ausgabe_aendern(&conn, a.id, &ausgabe("2026-07-01", "Werbung", 0.0)), Err(TreuhandFehler::UngueltigerBetrag)));
+        assert!(matches!(ausgabe_aendern(&conn, 999, &neu), Err(TreuhandFehler::NichtGefunden)));
+
+        let mut conn = conn;
+        einnahmen_importieren(&mut conn, vec![NeueEinnahme { datum: "2026-06-30".into(), betrag: 100.0, notiz: "Juni".into(), zahlart: "Bar".into() }]).unwrap();
+        let id = einnahmen_extern_eines_jahres(&conn, 2026).unwrap()[0].id;
+        einnahme_extern_aendern(&conn, id, &NeueEinnahme { datum: "2026-05-31".into(), betrag: 120.5, notiz: "Mai".into(), zahlart: "Twint".into() }).unwrap();
+        let e = &einnahmen_extern_eines_jahres(&conn, 2026).unwrap()[0];
+        assert_eq!((e.datum.as_str(), e.betrag, e.notiz.as_str(), e.zahlart.as_str()), ("2026-05-31", 120.5, "Mai", "Twint"));
+        assert_eq!(treuhand_uebersicht(&conn, 2026).unwrap().einnahmen_excel, 120.5);
     }
 }

@@ -189,6 +189,14 @@ pub(crate) fn schema_anlegen(conn: &Connection) -> rusqlite::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_alte_rechnungen_kunde ON alte_rechnungen(kunde_id);
 
+        -- Im Programm geloeschte fruehere Rechnungen: beim erneuten
+        -- Einlesen der Kundenordner nicht wieder uebernehmen.
+        CREATE TABLE IF NOT EXISTS alte_rechnungen_entfernt (
+            kunde_id    INTEGER NOT NULL,
+            quelle      TEXT NOT NULL,
+            PRIMARY KEY (kunde_id, quelle)
+        );
+
         -- Die Dateien aus diesen Ordnern selbst (Excel, Fotos ...), damit sie
         -- auch auf einem anderen PC noch aufgehen.
         CREATE TABLE IF NOT EXISTS kunden_dateien (
@@ -255,6 +263,9 @@ fn migrationen_anwenden(conn: &Connection) -> rusqlite::Result<()> {
         ("abholdatum", "TEXT"),
         ("angenommen_am", "TEXT"),
         ("bezahlt_am", "TEXT"),
+        // Stornieren (Auftrag/Rechnung war ein Irrtum): Status vor dem
+        // Storno, damit "Storno aufheben" genau dorthin zurueckkehrt.
+        ("status_vor_storno", "TEXT NOT NULL DEFAULT ''"),
     ];
     // Einnahmen aus Excel: Zahlart (Bar/Karte/Twint/Rechnung), damit sie in
     // "Monat & Jahr" wie im bisherigen "Jahr"-Blatt mitgezaehlt werden.

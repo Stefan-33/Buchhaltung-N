@@ -933,20 +933,25 @@
 
   // Feste Statusfarben, ueberall gleich: Angenommen grau, In Arbeit blau,
   // Abholbereit gruen, ueberfaellig oder noch offen (unbezahlt) orange.
+  function istStorniert(a) { return a.status === "Storniert"; }
+  function istLaufend(a) { return a.status !== "Abgeholt" && a.status !== "Storniert"; }
+
   function statusArt(a) {
+    if (istStorniert(a)) return "storniert";
     if (istUeberfaellig(a)) return "warn";
     if (a.status === "Abgeholt") return a.bezahlt ? "" : "warn";
     return { "In Arbeit": "arbeit", "Abholbereit": "bereit" }[a.status] || "angenommen";
   }
 
   function statusChip(a) {
-    var text = istUeberfaellig(a) ? "überfällig" : a.status === "Abgeholt" ? (a.bezahlt ? "bezahlt" : "offen") : a.status;
+    var text = istStorniert(a) ? "storniert" : istUeberfaellig(a) ? "überfällig" : a.status === "Abgeholt" ? (a.bezahlt ? "bezahlt" : "offen") : a.status;
     return '<span class="status st-' + (statusArt(a) || "angenommen") + '">' + escapeHtml(text) + "</span>";
   }
 
   // Farbstreifen links an einer Auftragszeile (Klassen fuer <tr>).
   function streifenKlasse(a) {
     var art = statusArt(a);
+    if (art === "storniert") return "storniert";
     return art ? "streifen sf-" + art : "";
   }
 
@@ -976,7 +981,7 @@
   }
 
   function istUeberfaellig(a) {
-    return a.status !== "Abgeholt" && a.abholdatum && a.abholdatum < datumHeute();
+    return istLaufend(a) && a.abholdatum && a.abholdatum < datumHeute();
   }
 
   function reiterOeffnen(id) { document.getElementById(id).click(); }
@@ -1014,12 +1019,16 @@
       .finally(function () { knopfSperren(knopf, false); });
   }
 
+  // Abrechnen-Editor zeigt eine schon abgerechnete Rechnung = Korrektur.
+  function istKorrektur() { return !!abrechnenAuftrag && abrechnenAuftrag.status === "Abgeholt"; }
+
   function abrechnenStarten(a) {
     abrechnenAuftrag = a;
     blattAnsicht = "neu";
     posten = a.posten.map(function (p) { return { bezeichnung: p.bezeichnung, stueck: p.stueck, preis: p.preis }; });
     if (!posten.length) posten = [neuePostenzeile()];
-    zahlart = "Bar";
+    // Korrektur einer schon abgerechneten Rechnung: bisherige Zahlart.
+    zahlart = a.status === "Abgeholt" ? a.zahlart : "Bar";
     letzteQuittung = null;
     blattZeichnen();
     var editor = document.getElementById("auftragEditor");
@@ -1038,11 +1047,11 @@
         aktuellerKunde = ergebnisse[0];
         aktuelleAuftraege = ergebnisse[1];
         var zuAbrechnen = abrechnenId
-          ? aktuelleAuftraege.filter(function (a) { return a.id === abrechnenId && a.status !== "Abgeholt"; })[0]
+          ? aktuelleAuftraege.filter(function (a) { return a.id === abrechnenId && istLaufend(a); })[0]
           : null;
         // Hat die Kundin laufende Auftraege, kommt sie meist zum Abholen -
         // dann zuerst diese zeigen, sonst gleich die Erfassung.
-        var hatLaufende = aktuelleAuftraege.some(function (a) { return a.status !== "Abgeholt"; });
+        var hatLaufende = aktuelleAuftraege.some(istLaufend);
         blattAnsicht = hatLaufende ? "laufend" : "neu";
         if (zuAbrechnen) abrechnenStarten(zuAbrechnen);
         else blattZeichnen();
@@ -1095,7 +1104,7 @@
   function unterreiterHtml(laufende, anzahlVerlauf) {
     var ueberfaellig = laufende.some(istUeberfaellig);
     var reiter = [
-      ["neu", abrechnenAuftrag ? "Abrechnen Nr. " + abrechnenAuftrag.rechnungsnummer : "Neuer Auftrag", ""],
+      ["neu", abrechnenAuftrag ? (istKorrektur() ? "Korrektur Nr. " : "Abrechnen Nr. ") + abrechnenAuftrag.rechnungsnummer : "Neuer Auftrag", ""],
       ["laufend", "Laufend", '<span class="unterreiter-zahl' + (ueberfaellig ? " warn" : "") + '">' + laufende.length + "</span>"],
       ["verlauf", "Verlauf", '<span class="unterreiter-zahl">' + anzahlVerlauf + "</span>"],
     ];
@@ -1116,7 +1125,7 @@
       return escapeHtml(erste) + escapeHtml(mehr);
     }
 
-    var laufende = aktuelleAuftraege.filter(function (a) { return a.status !== "Abgeholt"; });
+    var laufende = aktuelleAuftraege.filter(istLaufend);
     var laufendZeilen = laufende
       .map(function (a) {
         var abholen = a.abholdatum
@@ -1131,23 +1140,30 @@
           '<td class="re">' + (inArbeit
             ? '<span style="font-size:12px;color:var(--tinte-2)">wird abgerechnet</span>'
             : '<button type="button" class="knopf knopf-klein" data-schein="' + a.id + '" title="Auftragsschein drucken">🖨 Auftrag</button> ' +
-              '<button type="button" class="knopf knopf-voll knopf-klein" data-abrechnen="' + a.id + '">Abrechnen</button>') +
+              '<button type="button" class="knopf knopf-voll knopf-klein" data-abrechnen="' + a.id + '">Abrechnen</button> ' +
+              '<button type="button" class="weg" data-storno="' + a.id + '" title="Auftrag stornieren (Irrtum, abgesagt)">×</button>') +
           "</td></tr>"
         );
       })
       .join("");
 
     var verlaufZeilen = aktuelleAuftraege
-      .filter(function (a) { return a.status === "Abgeholt"; })
+      .filter(function (a) { return !istLaufend(a); })
       .map(function (a) {
-        var offen = !a.bezahlt
+        var storniert = istStorniert(a);
+        var offen = !storniert && !a.bezahlt
           ? " " + statusChip(a) + ' <button type="button" class="knopf knopf-klein" data-bezahlt="' + a.id + '">bezahlt ✓</button>'
           : "";
+        var aktionen = storniert
+          ? '<button type="button" class="knopf knopf-klein" data-storno-auf="' + a.id + '" title="Storno rückgängig machen">Storno aufheben</button>'
+          : '<button type="button" class="stift" data-korrigieren="' + a.id + '" title="Rechnung korrigieren (Preise, Zahlart, Datum)">✎</button>' +
+            '<button type="button" class="weg" data-storno="' + a.id + '" title="Rechnung stornieren">×</button>';
         return (
           '<tr class="' + streifenKlasse(a) + '"><td class="zahl" style="white-space:nowrap;color:var(--tinte-2)">' + datumKurz(a.datum) + "</td>" +
           "<td>" + arbeitText(a) + '<br><span style="font-size:12px;color:var(--tinte-3)">Nr. ' + a.rechnungsnummer + "</span></td>" +
-          '<td class="re"><span class="zahlart">' + escapeHtml(a.zahlart) + "</span>" + offen + "</td>" +
-          '<td class="re">' + chf(a.summe) + "</td></tr>"
+          '<td class="re">' + (storniert ? statusChip(a) : '<span class="zahlart">' + escapeHtml(a.zahlart) + "</span>" + offen) + "</td>" +
+          '<td class="re">' + chf(a.summe) + "</td>" +
+          '<td class="aktionen-zelle">' + aktionen + "</td></tr>"
         );
       })
       .join("");
@@ -1207,14 +1223,19 @@
       (blattAnsicht === "verlauf"
         ? '<div class="abschnitt">' +
           (verlaufZeilen
-            ? '<table class="verlauf"><thead><tr><th>Datum</th><th>Arbeit</th><th class="re">Zahlart</th><th class="re">CHF</th></tr></thead><tbody>' + verlaufZeilen + "</tbody></table>"
+            ? '<table class="verlauf"><thead><tr><th>Datum</th><th>Arbeit</th><th class="re">Zahlart</th><th class="re">CHF</th><th></th></tr></thead><tbody>' + verlaufZeilen + "</tbody></table>"
             : '<p style="color:var(--tinte-2);font-size:14px;margin:0">Noch keine abgerechneten Aufträge.</p>') +
           '<div id="altesArchiv"></div>' +
           "</div>"
         : "") +
       (blattAnsicht === "neu"
         ? '<div class="abschnitt" id="auftragEditor">' +
-          (abrechnenAuftrag
+          (abrechnenAuftrag && istKorrektur()
+            ? '<p style="margin:0 0 10px;font-size:13px;color:var(--tinte-2)">Rechnung Nr. ' + abrechnenAuftrag.rechnungsnummer +
+              " korrigieren: Arbeiten, Preise, Zahlart oder Datum ändern. " +
+              '<button type="button" class="knopf knopf-klein" id="abrechnenAbbrechen">Abbrechen</button></p>' +
+              '<label class="korrektur-datum">Rechnungsdatum <input type="date" id="korrekturDatum" value="' + escapeHtml(abrechnenAuftrag.datum) + '"></label>'
+            : abrechnenAuftrag
             ? '<p style="margin:0 0 10px;font-size:13px;color:var(--tinte-2)">Auftrag Nr. ' + abrechnenAuftrag.rechnungsnummer +
               " abrechnen: Arbeiten und Preise bei Bedarf anpassen, Zahlart wählen. " +
               '<button type="button" class="knopf knopf-klein" id="abrechnenAbbrechen">Abbrechen</button></p>'
@@ -1231,7 +1252,7 @@
           // auch wenn die Liste der Arbeiten lang wird.
           '<div class="summenleiste">' +
           '<button type="button" class="knopf knopf-voll" id="abschliessenKnopf"' + (summe <= 0 ? " disabled" : "") + ">" +
-          (abrechnenAuftrag ? "Abrechnen &amp; Beleg" : "Auftrag abschliessen &amp; Beleg") + "</button>" +
+          (abrechnenAuftrag && istKorrektur() ? "Korrektur speichern &amp; Beleg" : abrechnenAuftrag ? "Abrechnen &amp; Beleg" : "Auftrag abschliessen &amp; Beleg") + "</button>" +
           '<span id="fertigFehler" class="fehler"></span>' +
           '<span class="summenleiste-total"><span>Total</span><b class="zahl">CHF ' + chf(summe) + "</b></span>" +
           "</div>" +
@@ -1303,12 +1324,46 @@
         if (a) abrechnenStarten(a);
       });
     });
+    elBlatt.querySelectorAll("[data-korrigieren]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var a = aktuelleAuftraege.filter(function (x) { return x.id === Number(b.dataset.korrigieren); })[0];
+        if (a) abrechnenStarten(a);
+      });
+    });
+    elBlatt.querySelectorAll("[data-storno]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var a = aktuelleAuftraege.filter(function (x) { return x.id === Number(b.dataset.storno); })[0];
+        if (!a) return;
+        var was = a.status === "Abgeholt" ? "Rechnung" : "Auftrag";
+        if (!confirm(was + " Nr. " + a.rechnungsnummer + " (CHF " + chf(a.summe) + ") stornieren?\n\n" +
+          "Er bleibt mit seiner Nummer sichtbar, zählt aber nicht mehr im Umsatz und nicht mehr als offen. " +
+          "Das Storno lässt sich jederzeit wieder aufheben.")) return;
+        knopfSperren(b, true);
+        invoke("auftrag_stornieren", { auftrag_id: a.id })
+          .then(function () {
+            if (abrechnenAuftrag && abrechnenAuftrag.id === a.id) { abrechnenAuftrag = null; posten = [neuePostenzeile()]; }
+            return kundeNeuLaden();
+          })
+          .then(zaehlerAktualisieren)
+          .catch(function (e) { alert(fehlerText(e)); knopfSperren(b, false); });
+      });
+    });
+    elBlatt.querySelectorAll("[data-storno-auf]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        knopfSperren(b, true);
+        invoke("auftrag_storno_aufheben", { auftrag_id: Number(b.dataset.stornoAuf) })
+          .then(kundeNeuLaden)
+          .then(zaehlerAktualisieren)
+          .catch(function (e) { alert(fehlerText(e)); knopfSperren(b, false); });
+      });
+    });
     var abrechnenAbbrechen = elBlatt.querySelector("#abrechnenAbbrechen");
     if (abrechnenAbbrechen) {
       abrechnenAbbrechen.addEventListener("click", function () {
+        var warKorrektur = istKorrektur();
         abrechnenAuftrag = null;
         posten = [neuePostenzeile()];
-        blattAnsicht = "laufend";
+        blattAnsicht = warKorrektur ? "verlauf" : "laufend";
         blattZeichnen();
       });
     }
@@ -1355,7 +1410,10 @@
         if (!gueltig.length) { fehlerEl.textContent = "Mindestens eine Position mit Bezeichnung nötig."; return; }
 
         abschliessen.disabled = true;
-        var aufruf = abrechnenAuftrag
+        var datumEl = document.getElementById("korrekturDatum");
+        var aufruf = istKorrektur()
+          ? invoke("auftrag_korrigieren", { auftrag_id: abrechnenAuftrag.id, zahlart: zahlart, posten: gueltig, datum: datumEl ? datumEl.value : abrechnenAuftrag.datum })
+          : abrechnenAuftrag
           ? invoke("auftrag_abrechnen", { auftrag_id: abrechnenAuftrag.id, zahlart: zahlart, posten: gueltig })
           : invoke("auftrag_anlegen", { eingabe: { kunde_id: aktuellerKunde.id, zahlart: zahlart, posten: gueltig } });
         aufruf
@@ -1653,9 +1711,10 @@
   function stStundenZeile(e, loeschbar) {
     var notiz = e.notiz ? " <span style=\"color:var(--tinte-3)\">– " + escapeHtml(e.notiz) + "</span>" : "";
     var loeschKnopf = loeschbar
-      ? '<button type="button" class="weg" data-id="' + e.id + '" title="Eintrag löschen">×</button>'
+      ? '<button type="button" class="stift" data-st-korr="' + e.id + '" title="Korrigieren">✎</button>' +
+        '<button type="button" class="weg" data-id="' + e.id + '" title="Eintrag löschen">×</button>'
       : "";
-    return "<tr><td>" + datumKurz(e.datum) + "</td><td>" + stZeitAnzeige(e) + notiz + "</td><td>" + loeschKnopf + "</td></tr>";
+    return "<tr><td>" + datumKurz(e.datum) + "</td><td>" + stZeitAnzeige(e) + notiz + '</td><td class="aktionen-zelle">' + loeschKnopf + "</td></tr>";
   }
 
   function stEigeneZeichnen(eintraege) {
@@ -1670,8 +1729,34 @@
       "</tbody></table></div>" +
       '<p style="margin:10px 0 0;font-weight:700">Total: ' + total.toLocaleString("de-CH") + " Stunden</p>";
 
+    elStEigeneListe.querySelectorAll("button[data-st-korr]").forEach(function (knopf) {
+      knopf.addEventListener("click", function () {
+        var e = eintraege.filter(function (x) { return x.id === Number(knopf.dataset.stKorr); })[0];
+        if (!e) return;
+        var personId = maPersonIdAktuell();
+        korrekturOeffnen({
+          titel: "Stunden korrigieren",
+          felder: [
+            { name: "datum", label: "Datum", typ: "date", wert: e.datum },
+            { name: "vm_beginn", label: "Vormittag von", typ: "time", wert: e.vm_beginn, paar: true },
+            { name: "vm_ende", label: "bis", typ: "time", wert: e.vm_ende },
+            { name: "nm_beginn", label: "Nachmittag von", typ: "time", wert: e.nm_beginn, paar: true },
+            { name: "nm_ende", label: "bis", typ: "time", wert: e.nm_ende },
+            { name: "notiz", label: "Notiz", typ: "text", wert: e.notiz }
+          ],
+          hinweis: "Einen Block leer lassen, wenn nur vormittags oder nur nachmittags gearbeitet wurde.",
+          speichern: function (w) { return invoke("stunden_aendern", { id: e.id, benutzer_id: personId, eingabe: w }); },
+          loeschen: {
+            frage: "Diesen Stunden-Eintrag wirklich löschen?",
+            aktion: function () { return invoke("stunden_loeschen", { id: e.id, benutzer_id: personId }); }
+          },
+          danach: stMonatLaden
+        });
+      });
+    });
     elStEigeneListe.querySelectorAll("button[data-id]").forEach(function (knopf) {
       knopf.addEventListener("click", function () {
+        if (!confirm("Diesen Stunden-Eintrag wirklich löschen?")) return;
         invoke("stunden_loeschen", { id: Number(knopf.dataset.id), benutzer_id: maPersonIdAktuell() })
           .then(stMonatLaden)
           .catch(function (e) { alert(fehlerText(e)); });
@@ -2429,17 +2514,57 @@
         el.innerHTML = liste.map(function (e) {
           return "<tr><td>" + datumKurz(e.datum) + '</td><td class="re">' + chf(e.betrag) + "</td><td>" +
             escapeHtml(e.zahlart && e.zahlart !== e.notiz ? e.zahlart + " · " + e.notiz : e.notiz) +
-            '</td><td><button type="button" class="weg" data-einnahme-id="' + e.id + '" title="Einnahme löschen">×</button></td></tr>';
+            '</td><td class="aktionen-zelle"><button type="button" class="stift" data-einnahme-korr="' + e.id + '" title="Korrigieren">✎</button>' +
+            '<button type="button" class="weg" data-einnahme-id="' + e.id + '" title="Einnahme löschen">×</button></td></tr>';
         }).join("");
         el.querySelectorAll("button[data-einnahme-id]").forEach(function (btn) {
           btn.addEventListener("click", function () {
+            if (!confirm("Diese Einnahme wirklich löschen?")) return;
             invoke("einnahme_extern_loeschen", { id: Number(btn.dataset.einnahmeId) })
               .then(thJahrLaden)
               .catch(function (e) { alert(fehlerText(e)); });
           });
         });
+        el.querySelectorAll("button[data-einnahme-korr]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            var e = liste.filter(function (x) { return x.id === Number(btn.dataset.einnahmeKorr); })[0];
+            if (e) einnahmeKorrigieren(e);
+          });
+        });
       })
       .catch(function () {});
+  }
+
+  function einnahmeKorrigieren(e) {
+    korrekturOeffnen({
+      titel: "Einnahme korrigieren",
+      felder: [
+        { name: "datum", label: "Datum", typ: "date", wert: e.datum },
+        { name: "betrag", label: "Betrag (CHF)", typ: "number", wert: e.betrag },
+        { name: "zahlart", label: "Zahlart", typ: "select", wert: e.zahlart, optionen: ZAHLARTEN_WAHL },
+        { name: "notiz", label: "Notiz", typ: "text", wert: e.notiz }
+      ],
+      speichern: function (w) { return invoke("einnahme_extern_aendern", { id: e.id, eingabe: w }); },
+      loeschen: { frage: "Diese Einnahme wirklich löschen?", aktion: function () { return invoke("einnahme_extern_loeschen", { id: e.id }); } },
+      danach: thJahrLaden
+    });
+  }
+
+  function ausgabeKorrigieren(a) {
+    invoke("ausgaben_kategorien").then(function (kategorien) {
+      korrekturOeffnen({
+        titel: "Ausgabe korrigieren",
+        felder: [
+          { name: "datum", label: "Datum", typ: "date", wert: a.datum },
+          { name: "kategorie", label: "Kategorie", typ: "select", wert: a.kategorie, optionen: kategorien },
+          { name: "betrag", label: "Betrag (CHF)", typ: "number", wert: a.betrag },
+          { name: "notiz", label: "Notiz", typ: "text", wert: a.notiz }
+        ],
+        speichern: function (w) { return invoke("ausgabe_aendern", { id: a.id, eingabe: w }); },
+        loeschen: { frage: "Diese Ausgabe wirklich löschen?", aktion: function () { return invoke("ausgabe_loeschen", { id: a.id }); } },
+        danach: thJahrLaden
+      });
+    }).catch(function (e) { alert(fehlerText(e)); });
   }
 
   function thListeZeichnen(ausgaben) {
@@ -2454,11 +2579,19 @@
           : "";
         return "<tr><td>" + datumKurz(a.datum) + "</td><td>" + escapeHtml(a.kategorie) + '</td><td class="re">' +
           chf(a.betrag) + "</td><td>" + escapeHtml(a.notiz) + "</td><td>" + beleg +
-          '</td><td><button type="button" class="weg" data-id="' + a.id + '" title="Ausgabe löschen">×</button></td></tr>';
+          '</td><td class="aktionen-zelle"><button type="button" class="stift" data-korr="' + a.id + '" title="Korrigieren">✎</button>' +
+          '<button type="button" class="weg" data-id="' + a.id + '" title="Ausgabe löschen">×</button></td></tr>';
       })
       .join("");
+    elThListe.querySelectorAll("button[data-korr]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var a = ausgaben.filter(function (x) { return x.id === Number(btn.dataset.korr); })[0];
+        if (a) ausgabeKorrigieren(a);
+      });
+    });
     elThListe.querySelectorAll("button[data-id]").forEach(function (btn) {
       btn.addEventListener("click", function () {
+        if (!confirm("Diese Ausgabe wirklich löschen?")) return;
         invoke("ausgabe_loeschen", { id: Number(btn.getAttribute("data-id")) })
           .then(thJahrLaden)
           .catch(function (e) { alert(fehlerText(e)); });
@@ -3568,8 +3701,10 @@
           return;
         }
         elListe.innerHTML = zeilen.map(function (z) {
-          var laufend = z.status !== "Abgeholt";
-          var aktion = laufend
+          var laufend = istLaufend(z);
+          var aktion = istStorniert(z)
+            ? '<button type="button" class="knopf knopf-klein" data-kunde-id="' + z.kunde_id + '" title="Im Kundenblatt (Verlauf) lässt sich das Storno aufheben">Kundenblatt</button>'
+            : laufend
             ? '<span class="aktionen"><button type="button" class="knopf knopf-klein" data-schein-id="' + z.id + '" data-schein-kunde="' + z.kunde_id +
               '" title="Auftragsschein drucken">🖨</button>' +
               '<button type="button" class="knopf knopf-voll knopf-klein" data-abrechnen-kunde="' + z.kunde_id + '" data-abrechnen-id="' + z.id + '">Abrechnen</button></span>'
@@ -3951,13 +4086,47 @@
               }).join("") + "</div>"
             : "") +
           (rechnungen.length
-            ? '<table class="verlauf"><thead><tr><th>Datum</th><th>Arbeit</th><th class="re">Zahlart</th><th class="re">CHF</th></tr></thead><tbody>' +
+            ? '<table class="verlauf"><thead><tr><th>Datum</th><th>Arbeit</th><th class="re">Zahlart</th><th class="re">CHF</th><th></th></tr></thead><tbody>' +
               rechnungen.map(function (r) {
                 return "<tr><td>" + (r.datum ? datumKurz(r.datum) : "–") + '</td><td class="alte-posten">' +
                   escapeHtml(r.posten || "–").replace(/\n/g, "<br>") + '<br><small>' + escapeHtml(r.quelle) + "</small></td>" +
-                  '<td class="re">' + escapeHtml(r.zahlart || "–") + '</td><td class="re">' + chf(r.summe) + "</td></tr>";
+                  '<td class="re">' + escapeHtml(r.zahlart || "–") + '</td><td class="re">' + chf(r.summe) + "</td>" +
+                  '<td class="aktionen-zelle"><button type="button" class="stift" data-alte-korr="' + r.id + '" title="Korrigieren oder löschen">✎</button></td></tr>';
               }).join("") + "</tbody></table>"
             : "");
+        el.querySelectorAll("[data-alte-korr]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            var r = rechnungen.filter(function (x) { return x.id === Number(b.dataset.alteKorr); })[0];
+            if (!r) return;
+            korrekturOeffnen({
+              titel: "Frühere Rechnung korrigieren",
+              felder: [
+                { name: "datum", label: "Datum", typ: "date", wert: r.datum },
+                { name: "summe", label: "Betrag (CHF)", typ: "number", wert: r.summe },
+                { name: "zahlart", label: "Zahlart", typ: "select", wert: r.zahlart, optionen: ZAHLARTEN_WAHL },
+                { name: "posten", label: "Arbeit", typ: "textarea", wert: r.posten }
+              ],
+              hinweis: "Zählt im Kundenblatt und in Treuhand (Monate ohne Excel-Zahlen) mit. Beim erneuten Einlesen der Kundenordner bleibt Ihre Korrektur erhalten.",
+              speichern: function (w) {
+                return invoke("alte_rechnung_aendern", { id: r.id, datum: w.datum, summe: w.summe, zahlart: w.zahlart, posten: w.posten });
+              },
+              loeschen: {
+                frage: "Diese frühere Rechnung wirklich löschen? Sie kommt auch beim erneuten Einlesen der Kundenordner nicht wieder.",
+                aktion: function () { return invoke("alte_rechnung_loeschen", { id: r.id }); }
+              },
+              danach: function () {
+                altesArchivLaden(kundeId);
+                invoke("kunde_holen", { id: kundeId }).then(function (k) {
+                  if (aktuellerKunde && aktuellerKunde.id === kundeId) {
+                    aktuellerKunde = k;
+                    var kz = elBlatt.querySelector(".kennzahl b");
+                    if (kz) kz.textContent = chf(k.jahresumsatz);
+                  }
+                }).catch(function () {});
+              }
+            });
+          });
+        });
         el.querySelectorAll("[data-datei-id]").forEach(function (b) {
           b.addEventListener("click", function () {
             knopfSperren(b, true);
@@ -3969,6 +4138,92 @@
       })
       .catch(function () {});
   }
+
+  // ================= KORRIGIEREN =================
+  // Ein Dialog fuer alle nachtraeglichen Korrekturen (Ausgaben, Excel-
+  // Einnahmen, fruehere Rechnungen, Stunden): falls beim Import oder beim
+  // Erfassen etwas nicht stimmt, laesst es sich hier selbst richtigstellen.
+  //   felder: [{ name, label, typ: "date"|"number"|"text"|"time"|"select"|"textarea", wert, optionen, paar }]
+  //   speichern(werte) -> Promise, loeschen: { frage, aktion() -> Promise } (optional)
+  var elKorrektur = document.getElementById("korrekturDialog");
+  var korrekturAktuell = null;
+
+  function korrekturFeldHtml(f) {
+    var id = "kd-f-" + f.name;
+    var wert = f.wert === null || f.wert === undefined ? "" : String(f.wert);
+    var eingabe;
+    if (f.typ === "select") {
+      eingabe = '<select id="' + id + '">' + f.optionen.map(function (o) {
+        var w = typeof o === "string" ? o : o[0];
+        var t = typeof o === "string" ? o : o[1];
+        return '<option value="' + escapeHtml(w) + '"' + (w === wert ? " selected" : "") + ">" + escapeHtml(t) + "</option>";
+      }).join("") + "</select>";
+    } else if (f.typ === "textarea") {
+      eingabe = '<textarea id="' + id + '" rows="4">' + escapeHtml(wert) + "</textarea>";
+    } else {
+      eingabe = '<input id="' + id + '" type="' + f.typ + '"' + (f.typ === "number" ? ' min="0" step="0.05"' : "") +
+        ' value="' + escapeHtml(wert) + '">';
+    }
+    return '<label class="feld"><span>' + escapeHtml(f.label) + "</span>" + eingabe + "</label>";
+  }
+
+  function korrekturOeffnen(opt) {
+    korrekturAktuell = opt;
+    document.getElementById("kd-titel").textContent = opt.titel;
+    var html = "";
+    for (var i = 0; i < opt.felder.length; i++) {
+      var f = opt.felder[i];
+      if (f.paar && opt.felder[i + 1]) {
+        html += '<div class="kd-zeitpaar">' + korrekturFeldHtml(f) + korrekturFeldHtml(opt.felder[i + 1]) + "</div>";
+        i++;
+      } else {
+        html += korrekturFeldHtml(f);
+      }
+    }
+    if (opt.hinweis) html += '<p class="kleintext" style="margin:4px 0 0;font-size:12.5px;color:var(--tinte-2)">' + escapeHtml(opt.hinweis) + "</p>";
+    document.getElementById("kd-felder").innerHTML = html;
+    document.getElementById("kd-fehler").hidden = true;
+    document.getElementById("kd-loeschen").hidden = !opt.loeschen;
+    knopfSperren(document.getElementById("kd-speichern"), false);
+    elKorrektur.showModal();
+  }
+
+  function korrekturWerte() {
+    var werte = {};
+    korrekturAktuell.felder.forEach(function (f) {
+      var el = document.getElementById("kd-f-" + f.name);
+      werte[f.name] = f.typ === "number" ? Number(String(el.value).replace(",", ".")) : el.value;
+    });
+    return werte;
+  }
+
+  function korrekturFehler(e) {
+    var el = document.getElementById("kd-fehler");
+    el.textContent = fehlerText(e);
+    el.hidden = false;
+  }
+
+  document.getElementById("kd-abbrechen").addEventListener("click", function () { elKorrektur.close(); });
+  document.getElementById("kd-speichern").addEventListener("click", function () {
+    var knopf = this;
+    var opt = korrekturAktuell;
+    if (!opt) return;
+    knopfSperren(knopf, true);
+    Promise.resolve()
+      .then(function () { return opt.speichern(korrekturWerte()); })
+      .then(function () { elKorrektur.close(); if (opt.danach) opt.danach(); })
+      .catch(function (e) { korrekturFehler(e); knopfSperren(knopf, false); });
+  });
+  document.getElementById("kd-loeschen").addEventListener("click", function () {
+    var opt = korrekturAktuell;
+    if (!opt || !opt.loeschen) return;
+    if (!confirm(opt.loeschen.frage)) return;
+    opt.loeschen.aktion()
+      .then(function () { elKorrektur.close(); if (opt.danach) opt.danach(); })
+      .catch(korrekturFehler);
+  });
+
+  var ZAHLARTEN_WAHL = [["", "unbekannt"], ["Bar", "Bar"], ["Twint", "Twint"], ["Karte", "Karte"], ["Rechnung", "Rechnung"]];
 
   // ================= DATEN-UEBERGABE (anderer PC) =================
   // Stefan richtet auf seinem PC alles ein und gibt die Daten als eine

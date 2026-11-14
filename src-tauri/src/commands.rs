@@ -532,3 +532,74 @@ pub fn auftraege_monatsumsatz(zustand: State<AppZustand>, jahr: i32) -> Antwort<
     let conn = verbindung_sperren(&zustand);
     treuhand::auftraege_monatsumsatz(&conn, jahr).map_err(|e| e.to_string())
 }
+
+// ---------------------------------------------------------------------------
+// Nachtraeglich korrigieren: alles, was importiert oder erfasst wurde, laesst
+// sich im Programm selbst richtigstellen - ohne Hilfe von aussen.
+// ---------------------------------------------------------------------------
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn ausgabe_aendern(zustand: State<AppZustand>, id: i64, eingabe: NeueAusgabe) -> Antwort<Ausgabe> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::ausgabe_aendern(&conn, id, &eingabe).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn einnahme_extern_aendern(zustand: State<AppZustand>, id: i64, eingabe: treuhand::NeueEinnahme) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    treuhand::einnahme_extern_aendern(&conn, id, &eingabe).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn alte_rechnung_aendern(
+    zustand: State<AppZustand>,
+    id: i64,
+    datum: String,
+    summe: f64,
+    zahlart: String,
+    posten: String,
+) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    crate::kundenordner::alte_rechnung_aendern(&conn, id, &datum, summe, &zahlart, &posten)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn alte_rechnung_loeschen(zustand: State<AppZustand>, id: i64) -> Antwort<()> {
+    let mut conn = verbindung_sperren(&zustand);
+    crate::kundenordner::alte_rechnung_loeschen(&mut conn, id)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn stunden_aendern(
+    zustand: State<AppZustand>,
+    id: i64,
+    benutzer_id: i64,
+    eingabe: stunden::NeuerStundenEintrag,
+) -> Antwort<StundenEintrag> {
+    let conn = verbindung_sperren(&zustand);
+    stunden::stunden_aendern(&conn, id, benutzer_id, &eingabe).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn auftrag_korrigieren(
+    zustand: State<AppZustand>,
+    auftrag_id: i64,
+    zahlart: String,
+    posten: Vec<Posten>,
+    datum: String,
+) -> Antwort<Auftrag> {
+    let mut conn = verbindung_sperren(&zustand);
+    auftraege::auftrag_korrigieren(&mut conn, auftrag_id, &zahlart, posten, &datum).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn auftrag_stornieren(zustand: State<AppZustand>, auftrag_id: i64) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    auftraege::auftrag_stornieren(&conn, auftrag_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn auftrag_storno_aufheben(zustand: State<AppZustand>, auftrag_id: i64) -> Antwort<()> {
+    let conn = verbindung_sperren(&zustand);
+    auftraege::auftrag_storno_aufheben(&conn, auftrag_id).map_err(|e| e.to_string())
+}

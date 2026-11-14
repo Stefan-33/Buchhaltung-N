@@ -11,7 +11,7 @@
 
 use crate::geschaeft::{
     archiv_aktualisieren, auftrag_holen, naechster_zaehler, posten_einfuegen, zahlart_pruefen, Auftrag,
-    GeschaeftFehler, Posten, AUFTRAG_STATUS, STATUS_ABGEHOLT,
+    GeschaeftFehler, Posten, AUFTRAG_STATUS, STATUS_ABGEHOLT, STATUS_STORNIERT,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -122,6 +122,9 @@ pub fn auftrag_abrechnen(
     if status == STATUS_ABGEHOLT {
         return Err(GeschaeftFehler::BereitsAbgerechnet);
     }
+    if status == STATUS_STORNIERT {
+        return Err(GeschaeftFehler::Storniert);
+    }
 
     let summe: f64 = posten.iter().map(|p| p.stueck * p.preis).sum();
     let bezahlt = zahlart != "Rechnung";
@@ -155,7 +158,91 @@ pub fn auftrag_status_setzen(conn: &Connection, auftrag_id: i64, status: &str) -
     if bisher == STATUS_ABGEHOLT {
         return Err(GeschaeftFehler::BereitsAbgerechnet);
     }
+    if bisher == STATUS_STORNIERT {
+        return Err(GeschaeftFehler::Storniert);
+    }
     conn.execute("UPDATE auftraege SET status = ?1 WHERE id = ?2", params![status, auftrag_id])?;
+    Ok(())
+}
+
+/// Eine schon abgerechnete Rechnung nachtraeglich korrigieren (falscher
+/// Preis, falsche Zahlart, falsches Datum). Wechselt die Zahlart von
+/// "Rechnung" auf Bar/Twint/Karte, gilt sie als bezahlt; wechselt sie neu
+/// auf "Rechnung", ist sie wieder offen.
+pub fn auftrag_korrigieren(
+    conn: &mut Connection,
+    auftrag_id: i64,
+    zahlart: &str,
+    posten: Vec<Posten>,
+    datum: &str,
+) -> Result<Auftrag, GeschaeftFehler> {
+    zahlart_pruefen(zahlart)?;
+    let datum = datum.trim();
+    if chrono::NaiveDate::parse_from_str(datum, "%Y-%m-%d").is_err() {
+        return Err(GeschaeftFehler::UngueltigesRechnungsdatum);
+    }
+    let posten: Vec<Posten> = posten.into_iter().filter(|p| !p.bezeichnung.trim().is_empty()).collect();
+    if posten.is_empty() {
+        return Err(GeschaeftFehler::KeinePosten);
+    }
+    let (status, alte_zahlart): (String, String) = conn
+        .query_row("SELECT status, zahlart FROM auftraege WHERE id = ?1", [auftrag_id], |z| Ok((z.get(0)?, z.get(1)?)))
+        .optional()?
+        .ok_or(GeschaeftFehler::AuftragNichtGefunden)?;
+    if status == STATUS_STORNIERT {
+        return Err(GeschaeftFehler::Storniert);
+    }
+    if status != STATUS_ABGEHOLT {
+        return Err(GeschaeftFehler::NochNichtAbgerechnet);
+    }
+    let summe: f64 = posten.iter().map(|p| p.stueck * p.preis).sum();
+
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM auftrag_posten WHERE auftrag_id = ?1", [auftrag_id])?;
+    posten_einfuegen(&tx, auftrag_id, &posten)?;
+    tx.execute("UPDATE auftraege SET zahlart = ?1, summe = ?2, datum = ?3 WHERE id = ?4", params![zahlart, summe, datum, auftrag_id])?;
+    if zahlart != "Rechnung" {
+        tx.execute("UPDATE auftraege SET bezahlt = 1, bezahlt_am = COALESCE(bezahlt_am, datum) WHERE id = ?1", [auftrag_id])?;
+    } else if alte_zahlart != "Rechnung" {
+        tx.execute("UPDATE auftraege SET bezahlt = 0, bezahlt_am = NULL WHERE id = ?1", [auftrag_id])?;
+    }
+    tx.commit()?;
+    archiv_aktualisieren(conn)?;
+    auftrag_holen(conn, auftrag_id)
+}
+
+/// Auftrag oder Rechnung stornieren (Irrtum, doppelt erfasst, Kundin hat
+/// abgesagt). Die Nummer bleibt sichtbar, der Betrag zaehlt nirgends mehr.
+pub fn auftrag_stornieren(conn: &Connection, auftrag_id: i64) -> Result<(), GeschaeftFehler> {
+    let status: String = conn
+        .query_row("SELECT status FROM auftraege WHERE id = ?1", [auftrag_id], |z| z.get(0))
+        .optional()?
+        .ok_or(GeschaeftFehler::AuftragNichtGefunden)?;
+    if status == STATUS_STORNIERT {
+        return Ok(());
+    }
+    conn.execute(
+        "UPDATE auftraege SET status_vor_storno = status, status = ?1 WHERE id = ?2",
+        params![STATUS_STORNIERT, auftrag_id],
+    )?;
+    Ok(())
+}
+
+/// Storno rueckgaengig machen - der Auftrag ist wieder so wie vorher.
+pub fn auftrag_storno_aufheben(conn: &Connection, auftrag_id: i64) -> Result<(), GeschaeftFehler> {
+    let status: String = conn
+        .query_row("SELECT status FROM auftraege WHERE id = ?1", [auftrag_id], |z| z.get(0))
+        .optional()?
+        .ok_or(GeschaeftFehler::AuftragNichtGefunden)?;
+    if status != STATUS_STORNIERT {
+        return Err(GeschaeftFehler::NichtStorniert);
+    }
+    conn.execute(
+        "UPDATE auftraege SET status = CASE WHEN status_vor_storno = '' THEN 'Angenommen' ELSE status_vor_storno END,
+                status_vor_storno = ''
+         WHERE id = ?1",
+        [auftrag_id],
+    )?;
     Ok(())
 }
 
@@ -219,12 +306,13 @@ fn zeilen_abfragen(conn: &Connection, bedingung_und_sortierung: &str) -> rusqlit
 /// - "laufend": noch nicht abgeholt, naechstes Abholdatum zuerst
 /// - "abholbereit": fertig, wartet auf die Kundin
 /// - "unbezahlt": alle noch nicht bezahlten, aelteste zuerst
+/// (stornierte zaehlen nirgends ausser in "alle")
 /// - "alle": die letzten 300, neueste zuerst
 pub fn auftraege_liste(conn: &Connection, filter: &str) -> Result<Vec<AuftragZeile>, GeschaeftFehler> {
     let teil = match filter {
-        "laufend" => "WHERE a.status <> 'Abgeholt' ORDER BY a.abholdatum IS NULL, a.abholdatum, a.datum, a.id",
+        "laufend" => "WHERE a.status NOT IN ('Abgeholt', 'Storniert') ORDER BY a.abholdatum IS NULL, a.abholdatum, a.datum, a.id",
         "abholbereit" => "WHERE a.status = 'Abholbereit' ORDER BY a.abholdatum IS NULL, a.abholdatum, a.datum, a.id",
-        "unbezahlt" => "WHERE a.bezahlt = 0 ORDER BY a.datum, a.id",
+        "unbezahlt" => "WHERE a.bezahlt = 0 AND a.status <> 'Storniert' ORDER BY a.datum, a.id",
         "alle" => "ORDER BY a.datum DESC, a.id DESC LIMIT 300",
         _ => return Err(GeschaeftFehler::UngueltigerStatus),
     };
@@ -235,18 +323,18 @@ pub fn auftraege_liste(conn: &Connection, filter: &str) -> Result<Vec<AuftragZei
 pub fn uebersicht(conn: &Connection) -> Result<Uebersicht, GeschaeftFehler> {
     let heute = zeilen_abfragen(
         conn,
-        "WHERE a.status <> 'Abgeholt' AND a.abholdatum = date('now', 'localtime') ORDER BY a.id",
+        "WHERE a.status NOT IN ('Abgeholt', 'Storniert') AND a.abholdatum = date('now', 'localtime') ORDER BY a.id",
     )?;
     let ueberfaellig = zeilen_abfragen(
         conn,
-        "WHERE a.status <> 'Abgeholt' AND a.abholdatum < date('now', 'localtime') ORDER BY a.abholdatum, a.id",
+        "WHERE a.status NOT IN ('Abgeholt', 'Storniert') AND a.abholdatum < date('now', 'localtime') ORDER BY a.abholdatum, a.id",
     )?;
     let (laufend_anzahl, abholbereit_anzahl, unbezahlt_anzahl, unbezahlt_summe, umsatz_monat) = conn.query_row(
         "SELECT
-            COALESCE(SUM(status <> 'Abgeholt'), 0),
+            COALESCE(SUM(status NOT IN ('Abgeholt', 'Storniert')), 0),
             COALESCE(SUM(status = 'Abholbereit'), 0),
-            COALESCE(SUM(bezahlt = 0), 0),
-            COALESCE(SUM(CASE WHEN bezahlt = 0 THEN summe END), 0),
+            COALESCE(SUM(bezahlt = 0 AND status <> 'Storniert'), 0),
+            COALESCE(SUM(CASE WHEN bezahlt = 0 AND status <> 'Storniert' THEN summe END), 0),
             COALESCE(SUM(CASE WHEN status = 'Abgeholt'
                                AND strftime('%Y-%m', datum) = strftime('%Y-%m', 'now', 'localtime')
                               THEN summe END), 0)
@@ -464,5 +552,66 @@ mod tests {
             NeueAnnahme { kunde_id: 999, posten: vec![posten("Hose", 10.0)], abholdatum: None },
         );
         assert!(matches!(unbekannte_kundin, Err(GeschaeftFehler::KundeNichtGefunden)));
+    }
+
+    // Falscher Preis oder falsche Zahlart auf einer schon abgerechneten
+    // Rechnung: direkt korrigierbar, Umsatz und offene Posten stimmen danach.
+    #[test]
+    fn abgerechnete_rechnung_korrigieren() {
+        let mut conn = test_db();
+        let k = kunde(&conn);
+        let a = annehmen(&mut conn, k, None);
+        assert!(matches!(
+            auftrag_korrigieren(&mut conn, a.id, "Bar", vec![posten("Hose", 20.0)], &heute_plus(0)),
+            Err(GeschaeftFehler::NochNichtAbgerechnet)
+        ));
+        auftrag_abrechnen(&mut conn, a.id, "Rechnung", vec![posten("Hose kürzen", 25.0)]).unwrap();
+        assert_eq!(kunde_holen(&conn, k).unwrap().offen_summe, 25.0);
+
+        let heute = heute_plus(0);
+        let g = auftrag_korrigieren(&mut conn, a.id, "Twint", vec![posten("Hose kürzen", 28.0), posten("Knopf", 2.0)], &heute).unwrap();
+        assert_eq!((g.summe, g.zahlart.as_str(), g.bezahlt, g.posten.len()), (30.0, "Twint", true, 2));
+        let kd = kunde_holen(&conn, k).unwrap();
+        assert_eq!((kd.jahresumsatz, kd.offen_summe), (30.0, 0.0));
+
+        // Zurueck auf Rechnung -> wieder offen.
+        let g = auftrag_korrigieren(&mut conn, a.id, "Rechnung", vec![posten("Hose kürzen", 28.0)], &heute).unwrap();
+        assert!(!g.bezahlt);
+        assert!(matches!(
+            auftrag_korrigieren(&mut conn, a.id, "Bar", vec![posten("Hose", 1.0)], "31.12.2026"),
+            Err(GeschaeftFehler::UngueltigesRechnungsdatum)
+        ));
+    }
+
+    // Storno: zaehlt nirgends mehr (Umsatz, offen, laufend), laesst sich
+    // aber wieder aufheben - mit dem Status von vorher.
+    #[test]
+    fn stornieren_und_wieder_aufheben() {
+        let mut conn = test_db();
+        let k = kunde(&conn);
+        let laufend = annehmen(&mut conn, k, Some(&heute_plus(0)));
+        auftrag_status_setzen(&conn, laufend.id, "Abholbereit").unwrap();
+        let fertig = annehmen(&mut conn, k, None);
+        auftrag_abrechnen(&mut conn, fertig.id, "Bar", vec![posten("Saum", 10.0)]).unwrap();
+
+        auftrag_stornieren(&conn, laufend.id).unwrap();
+        auftrag_stornieren(&conn, fertig.id).unwrap();
+        let kd = kunde_holen(&conn, k).unwrap();
+        assert_eq!((kd.jahresumsatz, kd.offen_summe), (0.0, 0.0));
+        let u = uebersicht(&conn).unwrap();
+        assert_eq!((u.laufend_anzahl, u.unbezahlt_anzahl, u.heute.len()), (0, 0, 0));
+        assert!(auftraege_liste(&conn, "laufend").unwrap().is_empty());
+        assert_eq!(auftraege_liste(&conn, "alle").unwrap().len(), 2, "bleibt mit Nummer sichtbar");
+        assert!(monatsstatistik(&conn, aktuelles_jahr()).unwrap().is_empty());
+        assert!(matches!(auftrag_status_setzen(&conn, laufend.id, "In Arbeit"), Err(GeschaeftFehler::Storniert)));
+        assert!(matches!(auftrag_abrechnen(&mut conn, laufend.id, "Bar", vec![posten("x", 1.0)]), Err(GeschaeftFehler::Storniert)));
+
+        auftrag_storno_aufheben(&conn, laufend.id).unwrap();
+        auftrag_storno_aufheben(&conn, fertig.id).unwrap();
+        assert!(matches!(auftrag_storno_aufheben(&conn, fertig.id), Err(GeschaeftFehler::NichtStorniert)));
+        let liste = crate::geschaeft::auftraege_von_kunde(&conn, k).unwrap();
+        let status = |id: i64| liste.iter().find(|a| a.id == id).unwrap().status.clone();
+        assert_eq!((status(laufend.id).as_str(), status(fertig.id).as_str()), ("Abholbereit", "Abgeholt"));
+        assert_eq!(kunde_holen(&conn, k).unwrap().jahresumsatz, 10.0);
     }
 }

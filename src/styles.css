@@ -118,6 +118,20 @@ tr.sf-angenommen{--streifen:var(--linie-stark);}
 tr.sf-arbeit{--streifen:var(--blau);}
 tr.sf-bereit{--streifen:var(--gruen);}
 tr.sf-warn{--streifen:var(--faden);}
+/* Storniert: bleibt mit Nummer sichtbar, zaehlt aber nirgends */
+.st-storniert{background:var(--blatt-2);color:var(--tinte-3);text-decoration:line-through;}
+tr.storniert > td{color:var(--tinte-3);}
+tr.storniert .zahl, tr.storniert td.re:not(.aktionen-zelle){text-decoration:line-through;}
+
+/* ---------- Korrigieren-Dialog und Stift-Knopf ---------- */
+.kd-knoepfe{justify-content:space-between;align-items:center;}
+.kd-rechts{display:flex;gap:8px;margin-left:auto;}
+.kd-loeschen{color:var(--faden);}
+.kd-zeitpaar{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.stift{border:0;background:none;color:var(--tinte-3);font-size:15px;line-height:1;padding:2px 5px;border-radius:6px;cursor:pointer;}
+.stift:hover{color:var(--gruen-tief);background:var(--gruen-matt);}
+.aktionen-zelle{white-space:nowrap;}
+.korrektur-datum{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tinte-2);margin:0 0 10px;}
 
 /* ---------- Zweispalter ---------- */
 .arbeit{display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start;}
@@ -307,6 +321,7 @@ tr.sf-warn{--streifen:var(--faden);}
 .zeile-uebersprungen{opacity:.45;text-decoration:line-through;}
 .feld select{width:100%;padding:10px 12px;border:1px solid var(--linie-stark);border-radius:9px;background:var(--grund);font-size:15px;color:inherit;}
 .feld select:focus{outline:2px solid var(--gruen);outline-offset:1px;border-color:var(--gruen);}
+.feld textarea{width:100%;padding:10px 12px;border:1px solid var(--linie-stark);border-radius:9px;background:var(--grund);font-size:14px;color:inherit;font-family:inherit;resize:vertical;}
 
 /* ---------- Stunden ---------- */
 /* Flex statt Grid, mit fixer Breite pro Feld: wo wenig Platz ist, rutschen
